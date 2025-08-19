@@ -1,0 +1,42 @@
+experiment_name: vjepa2_smoke_test
+seed: 1337
+wandb:
+  project: oct-foundation
+  entity: layne
+  log_artifacts: false
+  ckpt_artifact_name: "${experiment_name}-ckpt"
+
+# data
+gcs_root: gs://layne-tpu-code-sync/OCTdata/OCTdata
+manifest_path: ${gcs_root}/manifest.tsv
+list_strategy: single_domain    # [single_domain|multi_domain]
+cache_local: true
+cache_dir: /tmp/oct_cache
+max_samples: 16  # Limit to 16 samples for smoke test
+
+# spatial
+target_spacing: [0.05, 0.02, 0.02]  # [dz, dy, dx] mm
+image_size: [32, 192, 192]          # Smaller for smoke test [D, H, W]
+patch_size: [4, 16, 16]
+mask_ratio: 0.6
+
+# train - minimal for smoke test
+global_batch_size: 4
+per_core_batch_size: 1
+grad_accum_steps: 1
+epochs: 1
+max_steps: 10  # Stop after 10 steps
+base_lr: 1.5e-3
+weight_decay: 0.05
+warmup_epochs: 0
+ema_base: 0.996
+
+# logging/ckpt
+ckpt_dir: /tmp/smoke_test_ckpts
+ckpt_every_epochs: 999  # Don't save checkpoints
+log_every_steps: 2
+
+# loader
+workers: 1
+prefetch_factor: 1
+pin_memory: false

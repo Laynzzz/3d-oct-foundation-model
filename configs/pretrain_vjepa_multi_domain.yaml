@@ -1,0 +1,40 @@
+experiment_name: vjepa2_multi_domain
+seed: 1337
+wandb:
+  project: oct-foundation
+  entity: layne
+  log_artifacts: true
+  ckpt_artifact_name: "${experiment_name}-ckpt"
+
+# data
+gcs_root: gs://layne-tpu-code-sync/OCTdata/OCTdata
+manifest_path: ${gcs_root}/manifest.tsv
+list_strategy: multi_domain    # [single_domain|multi_domain]
+cache_local: true
+cache_dir: /tmp/oct_cache
+
+# spatial
+target_spacing: [0.05, 0.02, 0.02]  # [dz, dy, dx] mm
+image_size: [64, 384, 384]          # [D, H, W]
+patch_size: [4, 16, 16]
+mask_ratio: 0.6
+
+# train
+global_batch_size: 128
+per_core_batch_size: 2
+grad_accum_steps: 8                 # adjust to satisfy global batch
+epochs: 150                         # increased for multi-domain
+base_lr: 1.5e-3
+weight_decay: 0.05
+warmup_epochs: 10
+ema_base: 0.996
+
+# logging/ckpt
+ckpt_dir: gs://layne-tpu-code-sync/checkpoints/vjepa2/${experiment_name}
+ckpt_every_epochs: 5
+log_every_steps: 50
+
+# loader
+workers: 4
+prefetch_factor: 2
+pin_memory: false

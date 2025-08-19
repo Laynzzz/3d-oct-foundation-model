@@ -1,0 +1,17 @@
+torch==2.*
+torchvision==0.*
+torch-xla==2.*
+monai
+pydicom
+pylibjpeg
+pylibjpeg-libjpeg
+pylibjpeg-openjpeg
+gcsfs
+fsspec
+timm
+einops
+omegaconf
+wandb
+
+# optional
+nibabel
