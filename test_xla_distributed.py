@@ -30,7 +30,7 @@ def _mp_fn(index):
         embed_dim=384,
         depth=6,
         num_heads=6,
-        ema_base=0.996
+        ema_momentum=0.996
     ).to(device)
     
     print(f"Worker {index}: Model created, params: {sum(p.numel() for p in model.parameters()):,}")
