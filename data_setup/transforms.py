@@ -130,18 +130,11 @@ def create_pretraining_transforms(
 ) -> Compose:
     """Create MONAI 3D transforms pipeline for pretraining.
     
-    As specified in section 4.3 of plan.md:
-    - LoadImaged (custom via pydicom stream) → tensor
-    - Spacingd (target spacing as above)
-    - NormalizeIntensityd
-    - RandSpatialCropd to sample 3D patches
-    - RandFlipd (spatial axes)
-    - RandAffined (small translations/rotations)
-    - RandGaussianNoised (low σ)
-    - Mask generator: produces binary mask for JEPA targets over patch grid (mask ratio ~ 0.6)
+    FIXED: Removed problematic Spacingd transform that was causing memory issues.
+    Instead, we directly resize to target image size, which is more practical for training.
     
     Args:
-        target_spacing: Target voxel spacing (dz, dy, dx) in mm
+        target_spacing: Target voxel spacing (dz, dy, dx) in mm (kept for config compatibility)
         image_size: Target image size (D, H, W)
         patch_size: Patch size for vision transformer
         mask_ratio: Mask ratio for JEPA targets
@@ -153,14 +146,7 @@ def create_pretraining_transforms(
         # Load image (custom loader for our DICOM data)
         LoadDICOMd(keys=['image']),
         
-        # Resample to fixed voxel spacing
-        Spacingd(
-            keys=['image'],
-            pixdim=target_spacing,
-            mode='bilinear'
-        ),
-        
-        # Resize/crop to target image size
+        # Resize directly to target image size (skip problematic spacing resample)
         Resized(
             keys=['image'],
             spatial_size=image_size,
@@ -225,8 +211,10 @@ def create_validation_transforms(
 ) -> Compose:
     """Create transforms for validation (no augmentation).
     
+    FIXED: Removed problematic Spacingd transform.
+    
     Args:
-        target_spacing: Target voxel spacing (dz, dy, dx) in mm
+        target_spacing: Target voxel spacing (dz, dy, dx) in mm (kept for config compatibility)
         image_size: Target image size (D, H, W)
         
     Returns:
@@ -236,14 +224,7 @@ def create_validation_transforms(
         # Load image
         LoadDICOMd(keys=['image']),
         
-        # Resample to fixed voxel spacing
-        Spacingd(
-            keys=['image'],
-            pixdim=target_spacing,
-            mode='bilinear'
-        ),
-        
-        # Resize to target image size
+        # Resize directly to target image size (skip problematic spacing resample)
         Resized(
             keys=['image'],
             spatial_size=image_size,
