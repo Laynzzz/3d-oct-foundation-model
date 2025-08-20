@@ -56,5 +56,5 @@ def _mp_fn(index):
         print("All workers completed successfully!")
 
 if __name__ == "__main__":
-    # Run with XLA multiprocessing
-    xmp.spawn(_mp_fn, nprocs=4)
+    # Run with XLA multiprocessing (nprocs=None uses all available devices)
+    xmp.spawn(_mp_fn, nprocs=None)

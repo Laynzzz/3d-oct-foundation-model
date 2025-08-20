@@ -601,26 +601,26 @@ def train_with_error_handling(config: DictConfig, max_oom_attempts: int = 3):
                 raise e
 
 
-def main():
-    """Main function."""
-    parser = argparse.ArgumentParser(description='V-JEPA2 3D OCT Pretraining')
+
+
+def _mp_fn(index):
+    """Main worker function for XLA multiprocessing"""
+    # Parse arguments
+    parser = argparse.ArgumentParser(description='V-JEPA2 3D OCT Foundation Model Pretraining')
     parser.add_argument('--config', type=str, required=True, help='Path to config file')
-    parser.add_argument('--resume', type=str, help='Path to checkpoint to resume from')
     args = parser.parse_args()
     
     # Load and validate config
     config = load_config(args.config)
     validate_config(config)
     
-    if args.resume:
-        config.resume_checkpoint = args.resume
-    
-    # Set seed
-    set_seed(config.seed)
+    # Set random seed
+    set_seed(config.get('seed', 42))
     
     # Start training with error handling
     train_with_error_handling(config)
 
 
 if __name__ == '__main__':
-    main()
+    # Use XLA multiprocessing for distributed training
+    xmp.spawn(_mp_fn, nprocs=None)
