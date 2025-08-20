@@ -355,6 +355,9 @@ def train_epoch(
         if batch is None:
             logger.warning(f"Received None batch at step {batch_idx}")
             continue
+        
+        # Log progress every batch for debugging
+        logger.info(f"Processing batch {batch_idx} with {batch.get('batch_size', 0)} samples")
             
         step_start_time = time.time()
         
