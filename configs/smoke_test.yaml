@@ -2,7 +2,7 @@ experiment_name: vjepa2_smoke_test
 seed: 1337
 wandb:
   project: 3d-oct-foundation-model
-  entity: layne
+  entity: laynzzz-university-at-buffalo
   log_artifacts: false
   ckpt_artifact_name: "${experiment_name}-ckpt"
 
