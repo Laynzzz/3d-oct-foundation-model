@@ -650,5 +650,9 @@ def _mp_fn(index):
 
 
 if __name__ == '__main__':
+    # Fix multiprocessing compatibility issues with Python 3.11 + XLA 2.7.0
+    import multiprocessing
+    multiprocessing.set_start_method('forkserver', force=True)
+    
     # Use XLA multiprocessing for distributed training
     xmp.spawn(_mp_fn, nprocs=None)
