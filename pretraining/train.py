@@ -220,13 +220,19 @@ def create_data_loaders(config: DictConfig) -> Tuple[DataLoader, DataLoader]:
     logger = logging.getLogger('oct_foundation')
     
     # Create file lists based on strategy
-    train_files, val_files = create_file_lists(
+    all_files = create_file_lists(
         manifest_path=config.manifest_path,
         gcs_root=config.gcs_root,
-        list_strategy=config.list_strategy,
-        val_ratio=0.1,
-        seed=config.seed
+        list_strategy=config.list_strategy
     )
+    
+    # Split into train/val
+    import random
+    random.seed(config.seed)
+    random.shuffle(all_files)
+    val_size = int(0.1 * len(all_files))
+    train_files = all_files[val_size:]
+    val_files = all_files[:val_size]
     
     logger.info(f"Created file lists: {len(train_files)} training, {len(val_files)} validation")
     
