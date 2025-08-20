@@ -11,7 +11,7 @@ from pathlib import Path
 import concurrent.futures
 from typing import List, Tuple, Optional
 import time
-from data_setup.gcs_dicom_reader import GCSDicomReader
+from data_setup.gcs_dicom_reader import GCSDICOMReader
 
 # Setup logging
 logging.basicConfig(
@@ -32,7 +32,7 @@ def validate_dicom_file(file_path: str) -> Tuple[str, bool, Optional[str]]:
         Tuple of (file_path, is_valid, error_message)
     """
     try:
-        reader = GCSDicomReader()
+        reader = GCSDICOMReader()
         
         # Try to load and validate the DICOM
         dicom_data = reader.load_dicom(file_path)
