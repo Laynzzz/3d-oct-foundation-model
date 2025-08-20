@@ -501,7 +501,7 @@ def main_worker(config: DictConfig):
         embed_dim=config.get('embed_dim', 768),
         depth=config.get('depth', 12),
         num_heads=config.get('num_heads', 12),
-        ema_base=config.ema_base
+        ema_momentum=config.ema_base
     ).to(device)
     
     # Log model info (master only)
