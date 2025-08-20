@@ -56,16 +56,45 @@ class OCTDICOMDataset(Dataset):
             cache_dir=cache_dir
         )
         
-        logger.info(f"Initialized OCTDICOMDataset with {len(file_list)} files")
+        # Filter out known problematic files (optional)
+        self.filtered_file_list = self._filter_problematic_files(file_list)
+        
+        logger.info(f"Initialized OCTDICOMDataset with {len(self.filtered_file_list)} files (filtered from {len(file_list)})")
         logger.info(f"Target spacing: {target_spacing} mm")
         logger.info(f"Target image size: {image_size}")
     
+    def _filter_problematic_files(self, file_list: List[str]) -> List[str]:
+        """Filter out known problematic files.
+        
+        Args:
+            file_list: Original list of files
+            
+        Returns:
+            Filtered list with problematic files removed
+        """
+        # Known problematic patterns from the error logs
+        problematic_patterns = [
+            # Add patterns for files that consistently fail
+            # These can be updated based on training experience
+        ]
+        
+        filtered_list = []
+        for file_path in file_list:
+            # Skip files matching problematic patterns
+            if any(pattern in file_path for pattern in problematic_patterns):
+                logger.debug(f"Filtering out problematic file: {file_path}")
+                continue
+            filtered_list.append(file_path)
+        
+        logger.info(f"Filtered out {len(file_list) - len(filtered_list)} problematic files")
+        return filtered_list
+    
     def __len__(self) -> int:
         """Return dataset length."""
-        return len(self.file_list)
+        return len(self.filtered_file_list)
     
     def __getitem__(self, idx: int) -> Optional[Dict[str, Any]]:
-        """Get item by index.
+        """Get item by index with robust error handling.
         
         Args:
             idx: Dataset index
@@ -78,17 +107,31 @@ class OCTDICOMDataset(Dataset):
             
             None if file cannot be loaded
         """
-        if idx >= len(self.file_list):
-            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.file_list)}")
+        if idx >= len(self.filtered_file_list):
+            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.filtered_file_list)}")
         
-        gcs_path = self.file_list[idx]
+        gcs_path = self.filtered_file_list[idx]
         
-        # Read DICOM volume
-        dicom_data = self.dicom_reader.read_dicom_volume(gcs_path)
-        
-        if dicom_data is None:
-            logger.warning(f"Failed to load DICOM at index {idx}: {gcs_path}")
-            return None
+        # Try to read DICOM volume with retry logic
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                dicom_data = self.dicom_reader.read_dicom_volume(gcs_path)
+                if dicom_data is not None:
+                    break
+                elif attempt < max_retries:
+                    logger.warning(f"Attempt {attempt + 1} failed for index {idx}: {gcs_path}")
+                    continue
+                else:
+                    logger.warning(f"Failed to load DICOM at index {idx} after {max_retries + 1} attempts: {gcs_path}")
+                    return None
+            except Exception as e:
+                if attempt < max_retries:
+                    logger.warning(f"Attempt {attempt + 1} failed for index {idx}: {gcs_path} - {e}")
+                    continue
+                else:
+                    logger.error(f"Failed to load DICOM at index {idx} after {max_retries + 1} attempts: {gcs_path} - {e}")
+                    return None
         
         # Extract data
         pixel_array = dicom_data['pixel_array']  # [frames, height, width]
@@ -121,13 +164,60 @@ class OCTDICOMDataset(Dataset):
         
         return sample
     
+    def get_next_valid_sample(self, start_idx: int, max_lookahead: int = 10) -> Optional[Dict[str, Any]]:
+        """Get the next valid sample starting from start_idx.
+        
+        This is useful when the DataLoader encounters None samples and needs
+        to find a working sample to continue training.
+        
+        Args:
+            start_idx: Starting index to search from
+            max_lookahead: Maximum number of indices to look ahead
+            
+        Returns:
+            Valid sample or None if none found within lookahead
+        """
+        for offset in range(max_lookahead):
+            idx = (start_idx + offset) % len(self.filtered_file_list)
+            try:
+                sample = self.__getitem__(idx)
+                if sample is not None:
+                    logger.debug(f"Found valid sample at index {idx} (offset {offset})")
+                    return sample
+            except Exception as e:
+                logger.debug(f"Error at index {idx}: {e}")
+                continue
+        
+        logger.warning(f"No valid samples found within {max_lookahead} indices from {start_idx}")
+        return None
+    
     def get_file_at_index(self, idx: int) -> str:
         """Get file path at given index."""
-        return self.file_list[idx]
+        return self.filtered_file_list[idx]
+    
+    def get_original_file_list(self) -> List[str]:
+        """Get the original unfiltered file list for debugging."""
+        return self.file_list
+    
+    def get_dataset_stats(self) -> Dict[str, Any]:
+        """Get statistics about dataset health and filtering.
+        
+        Returns:
+            Dictionary with dataset statistics
+        """
+        return {
+            'total_files': len(self.file_list),
+            'filtered_files': len(self.filtered_file_list),
+            'removed_files': len(self.file_list) - len(self.filtered_file_list),
+            'filtering_ratio': (len(self.file_list) - len(self.filtered_file_list)) / len(self.file_list) if self.file_list else 0,
+            'dicom_reader_stats': {
+                'skipped_files': self.dicom_reader.skipped_files
+            }
+        }
     
     def get_device_for_index(self, idx: int) -> str:
         """Get device name for file at given index."""
-        filepath = self.file_list[idx]
+        filepath = self.filtered_file_list[idx]
         # Extract device from GCS path
         for device in ['heidelberg_spectralis', 'topcon_triton', 'topcon_maestro2', 'zeiss_cirrus']:
             if device in filepath:
@@ -205,7 +295,7 @@ def stratified_split_by_device(
 
 
 def collate_fn(batch: List[Optional[Dict[str, Any]]]) -> Dict[str, Any]:
-    """Custom collate function that handles None samples.
+    """Custom collate function that handles None samples with robust error handling.
     
     Args:
         batch: List of samples from dataset
@@ -217,18 +307,40 @@ def collate_fn(batch: List[Optional[Dict[str, Any]]]) -> Dict[str, Any]:
     valid_samples = [sample for sample in batch if sample is not None]
     
     if len(valid_samples) == 0:
-        raise RuntimeError("No valid samples in batch")
+        # Try to get a valid sample from the dataset if available
+        logger.error("No valid samples in batch - this indicates a serious data loading issue")
+        logger.error("Batch contents:")
+        for i, sample in enumerate(batch):
+            logger.error(f"  Sample {i}: {type(sample)} - {sample}")
+        
+        # Try to provide more context about what went wrong
+        raise RuntimeError("No valid samples in batch - check DICOM file integrity and GCS permissions")
     
-    # Stack images
-    images = torch.stack([sample['image'] for sample in valid_samples])
+    # Log batch statistics for debugging
+    total_samples = len(batch)
+    valid_count = len(valid_samples)
+    if valid_count < total_samples:
+        logger.warning(f"Batch had {total_samples - valid_count}/{total_samples} failed samples")
     
-    # Collect spacings and metadata
-    spacings = [sample['spacing'] for sample in valid_samples]
-    metas = [sample['meta'] for sample in valid_samples]
-    
-    return {
-        'image': images,
-        'spacing': spacings,
-        'meta': metas,
-        'batch_size': len(valid_samples)
-    }
+    try:
+        # Stack images
+        images = torch.stack([sample['image'] for sample in valid_samples])
+        
+        # Collect spacings and metadata
+        spacings = [sample['spacing'] for sample in valid_samples]
+        metas = [sample['meta'] for sample in valid_samples]
+        
+        return {
+            'image': images,
+            'spacing': spacings,
+            'meta': metas,
+            'batch_size': len(valid_samples)
+        }
+    except Exception as e:
+        logger.error(f"Error in collate_fn: {e}")
+        logger.error(f"Valid samples: {valid_count}, Total samples: {total_samples}")
+        # Try to provide more debugging info
+        for i, sample in enumerate(valid_samples):
+            if sample is not None:
+                logger.debug(f"Sample {i}: keys={list(sample.keys())}, image_shape={sample.get('image', 'NO_IMAGE').shape if hasattr(sample.get('image', 'NO_IMAGE'), 'shape') else 'NO_SHAPE'}")
+        raise

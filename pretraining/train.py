@@ -292,6 +292,11 @@ def create_data_loaders(config: DictConfig) -> Tuple[DataLoader, DataLoader]:
         drop_last=False
     )
     
+    # Log dataset statistics
+    if hasattr(train_dataset, 'get_dataset_stats'):
+        train_stats = train_dataset.get_dataset_stats()
+        logger.info(f"Training dataset stats: {train_stats}")
+    
     # Create data loaders
     train_loader = DataLoader(
         train_dataset,
@@ -303,6 +308,11 @@ def create_data_loaders(config: DictConfig) -> Tuple[DataLoader, DataLoader]:
         prefetch_factor=config.get('prefetch_factor', 2),
         persistent_workers=True if config.get('workers', 4) > 0 else False
     )
+    
+    # Log dataset statistics
+    if hasattr(val_dataset, 'get_dataset_stats'):
+        val_stats = val_dataset.get_dataset_stats()
+        logger.info(f"Validation dataset stats: {val_stats}")
     
     val_loader = DataLoader(
         val_dataset,
@@ -343,9 +353,15 @@ def train_epoch(
     
     for batch_idx, batch in enumerate(para_loader.per_device_loader(device)):
         if batch is None:
+            logger.warning(f"Received None batch at step {batch_idx}")
             continue
             
         step_start_time = time.time()
+        
+        # Check if batch has enough valid samples
+        if batch.get('batch_size', 0) < config.per_core_batch_size * 0.5:  # Less than 50% valid
+            logger.warning(f"Batch {batch_idx} has only {batch.get('batch_size', 0)}/{config.per_core_batch_size} valid samples")
+            # Continue with reduced batch size - this is handled by the collate function
         
         # Forward pass
         try:
