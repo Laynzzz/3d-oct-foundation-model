@@ -101,7 +101,8 @@ def save_checkpoint(
     is_best: bool = False
 ) -> str:
     """Save model checkpoint to GCS."""
-    if not xm.is_master_ordinal():
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    if local_rank != 0:
         return ""
     
     checkpoint = {
@@ -272,10 +273,13 @@ def create_data_loaders(config: DictConfig) -> Tuple[DataLoader, DataLoader]:
     )
     
     # Create distributed samplers
+    # Get rank using PyTorch 2.7 compatible method
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    
     train_sampler = DistributedSampler(
         train_dataset,
         num_replicas=xr.world_size(),
-        rank=xm.get_ordinal(),
+        rank=local_rank,
         shuffle=True,
         drop_last=True
     )
@@ -283,7 +287,7 @@ def create_data_loaders(config: DictConfig) -> Tuple[DataLoader, DataLoader]:
     val_sampler = DistributedSampler(
         val_dataset,
         num_replicas=xr.world_size(),
-        rank=xm.get_ordinal(),
+        rank=local_rank,
         shuffle=False,
         drop_last=False
     )
@@ -402,7 +406,8 @@ def train_epoch(
                 )
                 
                 # Additional W&B metrics
-                if xm.is_master_ordinal() and wandb.run is not None:
+                local_rank = int(os.environ.get('LOCAL_RANK', 0))
+                if local_rank == 0 and wandb.run is not None:
                     wandb.log({
                         'train/ema_momentum': outputs.get('ema_momentum', 0.0),
                         'train/grad_norm': torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float('inf')),
@@ -466,7 +471,8 @@ def validate_epoch(model: nn.Module, val_loader, epoch: int, config: DictConfig)
     avg_loss = total_loss / max(num_batches, 1)
     
     # Log validation metrics
-    if xm.is_master_ordinal():
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    if local_rank == 0:
         logger.info(f"Validation epoch {epoch}: avg_loss = {avg_loss:.6f}")
         
         if wandb.run is not None:
