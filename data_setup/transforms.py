@@ -98,23 +98,8 @@ class JEPAMaskGeneratord(MapTransform):
                 masked_indices = torch.randperm(total_patches)[:num_masked]
                 mask_flat[masked_indices] = True
                 
-                # Reshape to patch grid
-                mask_grid = mask_flat.reshape(grid_d, grid_h, grid_w)
-                
-                # Expand to full image resolution
-                mask_full = torch.repeat_interleave(
-                    torch.repeat_interleave(
-                        torch.repeat_interleave(mask_grid, patch_d, dim=0),
-                        patch_h, dim=1
-                    ),
-                    patch_w, dim=2
-                )
-                
-                # Crop to exact image size if needed
-                mask_full = mask_full[:D, :H, :W]
-                
-                # Add to data
-                d['mask'] = mask_full
+                # Store the patch-level mask (what VJEPA model expects)
+                d['mask'] = mask_flat  # [num_patches] - patch-level binary mask
                 d['mask_ratio'] = self.mask_ratio
                 d['num_masked_patches'] = num_masked
                 d['total_patches'] = total_patches

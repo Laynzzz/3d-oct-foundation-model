@@ -34,8 +34,8 @@ ema_base: 0.996
 # mixed precision
 use_bf16: true  # Modern replacement for XLA_USE_BF16 env var
 
-# logging/ckpt
-ckpt_dir: /tmp/smoke_test_ckpts
+# logging/ckpt - disable checkpointing for smoke test
+ckpt_dir: null  # Disable checkpointing to avoid GCS permission issues
 ckpt_every_epochs: 999  # Don't save checkpoints
 log_every_steps: 2
 
