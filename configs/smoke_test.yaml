@@ -37,6 +37,6 @@ ckpt_every_epochs: 999  # Don't save checkpoints
 log_every_steps: 2
 
 # loader
-workers: 1
+workers: 0  # Fixed: multiprocessing causes 'mappingproxy' serialization errors
 prefetch_factor: 1
 pin_memory: false

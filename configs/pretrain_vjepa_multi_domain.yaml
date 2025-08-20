@@ -35,6 +35,6 @@ ckpt_every_epochs: 5
 log_every_steps: 50
 
 # loader
-workers: 4
+workers: 0  # Fixed: multiprocessing causes 'mappingproxy' serialization errors
 prefetch_factor: 2
 pin_memory: false
