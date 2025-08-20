@@ -61,7 +61,9 @@ def setup_wandb(config: DictConfig, resume: bool = False) -> None:
         config: Configuration containing wandb settings
         resume: Whether to resume existing run
     """
-    if not xm.is_master_ordinal():
+    import os
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    if local_rank != 0:
         return
     
     wandb_config = config.get('wandb', {})
@@ -87,7 +89,9 @@ def log_system_info(logger: logging.Logger) -> None:
     Args:
         logger: Logger instance
     """
-    if not xm.is_master_ordinal():
+    import os
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    if local_rank != 0:
         return
         
     import torch
@@ -98,9 +102,10 @@ def log_system_info(logger: logging.Logger) -> None:
     logger.info(f"PyTorch version: {torch.__version__}")
     logger.info(f"XLA version: {torch_xla.__version__}")
     logger.info(f"XLA device: {xm.xla_device()}")
-    logger.info(f"Number of XLA devices: {xm.xrt_world_size()}")
-    logger.info(f"Process ordinal: {xm.get_ordinal()}")
-    logger.info(f"Local ordinal: {xm.get_local_ordinal()}")
+    import torch_xla.runtime as xr
+    logger.info(f"Number of XLA devices: {xr.world_size()}")
+    logger.info(f"Process ordinal: {os.environ.get('RANK', 0)}")
+    logger.info(f"Local ordinal: {os.environ.get('LOCAL_RANK', 0)}")
     
     # Environment variables
     xla_env_vars = {k: v for k, v in os.environ.items() if 'XLA' in k or 'TPU' in k}
@@ -117,7 +122,9 @@ def log_model_info(model: torch.nn.Module, logger: logging.Logger) -> None:
         model: PyTorch model
         logger: Logger instance
     """
-    if not xm.is_master_ordinal():
+    import os
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    if local_rank != 0:
         return
         
     total_params = sum(p.numel() for p in model.parameters())
@@ -149,7 +156,9 @@ def log_training_metrics(
         logger: Optional logger instance
         log_wandb: Whether to log to wandb
     """
-    if not xm.is_master_ordinal():
+    import os
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    if local_rank != 0:
         return
     
     metrics = {

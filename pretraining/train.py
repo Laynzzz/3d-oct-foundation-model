@@ -474,10 +474,15 @@ def validate_epoch(model: nn.Module, val_loader, epoch: int, config: DictConfig)
 
 def main_worker(config: DictConfig):
     """Main training worker function."""
+    # Get rank info for PyTorch 2.7 compatibility
+    import os
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    is_master = local_rank == 0
+    
     # Setup logging
     logger = setup_logging(
         log_level=config.get('log_level', 'INFO'),
-        log_file=Path(f"/tmp/train_{xm.get_ordinal()}.log") if not xm.is_master_ordinal() else None
+        log_file=Path(f"/tmp/train_{local_rank}.log") if not is_master else None
     )
     
     # Set device
