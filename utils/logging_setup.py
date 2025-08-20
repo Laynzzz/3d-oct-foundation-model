@@ -66,6 +66,11 @@ def setup_wandb(config: DictConfig, resume: bool = False) -> None:
     if local_rank != 0:
         return
     
+    # Skip W&B initialization if disabled
+    wandb_mode = os.environ.get('WANDB_MODE', 'online')
+    if wandb_mode == 'disabled':
+        return
+    
     wandb_config = config.get('wandb', {})
     
     # Extract run name from experiment config
