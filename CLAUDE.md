@@ -179,32 +179,63 @@ bash run_tpu.sh configs/smoke_test.yaml
 ```
 
 #### Remote Execution (from local machine)
+
+**⚠️ CRITICAL: Always use `--worker=all` for training commands. TPU distributed training requires coordination across all workers.**
+
 ```bash
 # Set environment variables
 export TPU_NAME=oct-jepa2-v4-32
 export ZONE=us-central2-b
 export PROJECT_ID=your-project-id
 
-# Single-domain pretraining
+# Single-domain pretraining (MUST use worker=all)
 gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
     --zone=${ZONE} \
     --project=${PROJECT_ID} \
     --worker=all \
     --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && bash run_tpu.sh configs/pretrain_vjepa_single_domain.yaml"
 
-# Smoke test
+# Smoke test (MUST use worker=all)
 gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
     --zone=${ZONE} \
     --project=${PROJECT_ID} \
-    --worker=0 \
+    --worker=all \
     --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && bash run_tpu.sh configs/smoke_test.yaml"
 
-# Check TPU status
+# Multi-domain pretraining (MUST use worker=all)
 gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
     --zone=${ZONE} \
     --project=${PROJECT_ID} \
-    --worker=0 \
+    --worker=all \
+    --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && bash run_tpu.sh configs/pretrain_vjepa_multi_domain.yaml"
+
+# Check TPU status (can use worker=all or single worker)
+gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
+    --zone=${ZONE} \
+    --project=${PROJECT_ID} \
+    --worker=all \
     --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && python -c 'import torch_xla.runtime as xr; print(\"TPU cores:\", xr.local_device_count())'"
+
+# Clone repository to all workers (MUST use worker=all)
+gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
+    --zone=${ZONE} \
+    --project=${PROJECT_ID} \
+    --worker=all \
+    --command="cd /home/layne && git clone https://github.com/Laynzzz/3d-oct-foundation-model.git"
+
+# Install dependencies on all workers (MUST use worker=all)
+gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
+    --zone=${ZONE} \
+    --project=${PROJECT_ID} \
+    --worker=all \
+    --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && pip install -r requirements.txt"
+
+# Pull code updates to all workers (MUST use worker=all)
+gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
+    --zone=${ZONE} \
+    --project=${PROJECT_ID} \
+    --worker=all \
+    --command="cd ~/3d-oct-foundation-model && git pull"
 ```
 
 ### Development Commands
@@ -216,7 +247,77 @@ pip install -r requirements.txt
 python -m pytest tests/
 ```
 
-## Known Issues & Automation Notes
+## 🔥 CRITICAL TPU Rules & Requirements
+
+### 🚨 MANDATORY: worker=all Usage
+**NEVER use single worker for any training or setup operations!**
+
+- ✅ **ALWAYS**: `--worker=all` for training, dependency installation, git operations
+- ❌ **NEVER**: `--worker=0` or `--worker=1` for distributed operations
+- **Why**: TPU v4 has 4 workers × 4 cores = 16 total cores. All workers must coordinate for distributed training.
+
+### 🔧 PyTorch 2.7.1 / XLA 2.7.0 Specific Rules
+
+#### Environment Setup (Required)
+```bash
+export PATH=/home/layne/miniconda/envs/torch-xla/bin:$PATH  # ALWAYS set this
+export XLA_USE_BF16=1
+export TF_CPP_MIN_LOG_LEVEL=1
+export PJRT_DEVICE=TPU
+export XLA_FLAGS="--xla_gpu_enable_triton_softmax_fusion=true"
+```
+
+#### Code Synchronization (Required)
+```bash
+# ALWAYS sync code to all workers before training
+gcloud compute tpus tpu-vm ssh ${TPU_NAME} --zone=${ZONE} --worker=all --command="cd ~/3d-oct-foundation-model && git pull"
+```
+
+#### Dependency Installation (Required)
+```bash
+# ALWAYS install on all workers
+gcloud compute tpus tpu-vm ssh ${TPU_NAME} --zone=${ZONE} --worker=all --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && pip install -r requirements.txt"
+```
+
+### 🐛 Common Issues & Solutions
+
+#### TPU Device Permission Errors
+```
+RuntimeError: TPU initialization failed: open(/dev/accel1): Operation not permitted
+```
+**Solution**: Restart TPU
+```bash
+gcloud compute tpus stop ${TPU_NAME} --zone=${ZONE}
+gcloud compute tpus start ${TPU_NAME} --zone=${ZONE}
+```
+
+#### Missing Dependencies
+**Always check all workers have dependencies**:
+```bash
+gcloud compute tpus tpu-vm ssh ${TPU_NAME} --zone=${ZONE} --worker=all --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && python -c 'import torch_xla, gcsfs, omegaconf; print(\"✅ Dependencies OK\")'"
+```
+
+#### Import Errors
+**Common fix**: Ensure `torch` is imported in all utility modules
+```python
+import torch  # Required for type hints like torch.nn.Module
+```
+
+### 🎯 Training Launch Rules
+
+#### Correct Launcher (PyTorch 2.7)
+```bash
+# OLD (doesn't work in 2.7)
+python -m torch_xla.distributed.xla_spawn --num_workers=8
+
+# NEW (PyTorch 2.7 compatible)
+torchrun --nproc_per_node=4
+```
+
+#### Batch Size Configuration
+- **Global batch size**: Must be divisible by (num_workers × nproc_per_node)
+- **TPU v4**: 4 workers × 4 processes = 16 total processes
+- **Example**: global_batch_size=128, per_core_batch_size=8, grad_accum_steps=1
 
 ### OOM Handling Strategy
 1. Halve `per_core_batch_size`
@@ -227,6 +328,7 @@ python -m pytest tests/
 - **Bad files**: Log warning, skip, continue processing
 - **Missing spacing**: Default to [1.0, 1.0, 1.0] mm, log assumption
 - **Multi-process failures**: Retry with `--num_workers=1`
+- **TPU initialization failures**: Restart TPU and retry
 
 ## Data Pipeline Verification
 
