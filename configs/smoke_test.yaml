@@ -8,7 +8,7 @@ wandb:
 
 # data
 gcs_root: gs://layne-tpu-code-sync/OCTdata/OCTdata
-manifest_path: ${gcs_root}/manifest.tsv
+manifest_path: ${gcs_root}/manifest_minimal.tsv
 list_strategy: single_domain    # [single_domain|multi_domain]
 cache_local: true
 cache_dir: /tmp/oct_cache
