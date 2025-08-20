@@ -79,7 +79,7 @@ def setup_wandb(config: DictConfig, resume: bool = False) -> None:
         run_name += f"-{config.git_sha[:7]}"
     
     wandb.init(
-        project=wandb_config.get('project', 'oct-foundation'),
+        project=wandb_config.get('project', '3d-oct-foundation-model'),
         entity=wandb_config.get('entity', None),
         name=run_name,
         config=dict(config),
