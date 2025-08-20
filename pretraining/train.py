@@ -366,7 +366,8 @@ def train_epoch(
         # Forward pass
         try:
             # Mixed precision forward pass
-            if os.environ.get('XLA_USE_BF16') == '1':
+            use_bf16 = getattr(config, 'use_bf16', False) or os.environ.get('XLA_USE_BF16') == '1'
+            if use_bf16:
                 with torch.autocast(device_type='xla', dtype=torch.bfloat16):
                     outputs = model(batch)
                     loss = outputs['loss']
@@ -469,7 +470,8 @@ def validate_epoch(model: nn.Module, val_loader, epoch: int, config: DictConfig)
             
             try:
                 # Forward pass
-                if os.environ.get('XLA_USE_BF16') == '1':
+                use_bf16 = getattr(config, 'use_bf16', False) or os.environ.get('XLA_USE_BF16') == '1'
+                if use_bf16:
                     with torch.autocast(device_type='xla', dtype=torch.bfloat16):
                         outputs = model(batch)
                         loss = outputs['loss']

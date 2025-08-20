@@ -21,7 +21,7 @@ patch_size: [4, 16, 16]
 mask_ratio: 0.6
 
 # train - minimal for smoke test
-global_batch_size: 4
+global_batch_size: 8  # Changed: 8 ÷ (1 × 8) = 1 grad_accum_steps
 per_core_batch_size: 1
 grad_accum_steps: 1
 epochs: 1
@@ -30,6 +30,9 @@ base_lr: 1.5e-3
 weight_decay: 0.05
 warmup_epochs: 0
 ema_base: 0.996
+
+# mixed precision
+use_bf16: true  # Modern replacement for XLA_USE_BF16 env var
 
 # logging/ckpt
 ckpt_dir: /tmp/smoke_test_ckpts
