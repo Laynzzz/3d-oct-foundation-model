@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Optional
+import torch
 import wandb
 import torch_xla.core.xla_model as xm
 from omegaconf import DictConfig
