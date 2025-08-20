@@ -228,5 +228,67 @@ ckpt_dir: /tmp/smoke_test_ckpts  # Local temp dir avoids GCS
 
 ---
 
-*Status: All critical issues resolved and optimized. Training pipeline ready for clean restart.*
-*Next: Deploy fixes → Launch optimized smoke test → Monitor completion → Proceed to full training*
+---
+
+## 🚨 **NEW ISSUE: Validation Metrics Without Training Metrics (August 20, 2025)**
+
+### **🔍 Problem Description**
+**Current State**: Full training is running but W&B dashboard shows:
+- ✅ **System metrics**: CPU, memory usage visible
+- ✅ **Validation metrics**: val/loss and validation data appearing  
+- ❌ **Training metrics**: NO train/loss, train/learning_rate, or training steps visible
+
+### **⚠️ Why This is Critical**
+**Normal Flow**: Training metrics should appear BEFORE validation metrics because:
+- **Training**: Happens every step with `log_every_steps: 2`
+- **Validation**: Only runs at epoch intervals or specific checkpoints
+- **Missing training metrics**: Indicates training loop is failing silently
+
+### **🎯 Root Cause Analysis**
+**Most Likely Issues**:
+1. **Training Loop Failure**: Forward/backward pass crashing silently while validation succeeds
+2. **Distributed Training Partial Failure**: Some workers training, others only validating
+3. **Logging Configuration Bug**: Training metrics not reaching W&B dashboard
+4. **Data Pipeline Issue**: Training data loading fails but validation data works
+5. **Memory/OOM Issues**: Training OOMs but validation (smaller batches) succeeds
+
+### **🔍 Evidence Suggesting Training Failure**
+- **8+ minutes runtime**: Should have completed multiple training steps by now
+- **Only validation metrics**: Suggests training loop is bypassed/crashing
+- **4 concurrent W&B runs**: Distributed workers may be in inconsistent states
+- **Previous OOM/crash history**: Pattern of training instability
+
+---
+
+## 🚨 **IMMEDIATE ACTION REQUIRED**
+
+### **📊 Diagnostic Steps (Non-Intrusive)**
+1. **Check training logs**: Search for "Step", "train/loss", or ERROR messages
+2. **Monitor process stability**: Verify all 4 workers are still running training loops
+3. **W&B run analysis**: Check if different runs show different metric types
+4. **Memory usage**: Confirm training isn't silently OOMing
+
+### **🔧 Potential Fixes to Deploy**
+1. **Further reduce batch size**: If OOM is still occurring
+2. **Add explicit training logging**: Ensure train metrics are logged
+3. **Fix distributed training sync**: Address worker coordination issues
+4. **Simplify training loop**: Remove potential failure points
+
+### **⚡ Decision Matrix**
+| **Option** | **Action** | **Risk** | **Benefit** |
+|------------|------------|----------|-------------|
+| **Continue monitoring** | Wait 10-15 more minutes | Training may be silently broken | Avoid interrupting potentially working training |
+| **Investigate logs** | Read-only log checking | None | Understand exact failure mode |
+| **Kill and fix** | Stop training, apply fixes | Lose current progress | Address root cause quickly |
+| **Reduce parameters** | Deploy smaller config | Lose current progress | Higher success probability |
+
+### **💡 Recommended Next Steps**
+1. **Immediate**: Non-intrusive log investigation to identify exact failure point
+2. **If training loop confirmed broken**: Stop training and deploy targeted fixes
+3. **If validation-only issue**: Continue monitoring while preparing fixes
+4. **If distributed sync issue**: Address worker coordination problems
+
+---
+
+*Status: Training appears to be running but training metrics missing - requires immediate diagnosis to determine if training loop is actually functioning.*
+*Critical: Validation metrics without training metrics suggests serious pipeline issue requiring investigation.*
