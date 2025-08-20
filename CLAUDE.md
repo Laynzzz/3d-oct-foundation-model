@@ -104,6 +104,8 @@
 - **Instance**: `oct-jepa2-v4-32` (zone: `us-central2-b`)
 - **Python Environment**: `/home/layne/miniconda/envs/torch-xla/bin/python`
 - **Cores**: 8 TPU v4 cores
+- **PyTorch Version**: 2.7.1
+- **XLA Version**: 2.7.0
 
 ### GCS Configuration
 - **Bucket**: `gs://layne-tpu-code-sync/OCTdata/OCTdata`
@@ -116,6 +118,10 @@
 export XLA_USE_BF16=1
 export TF_CPP_MIN_LOG_LEVEL=1
 export DATA_CACHE_DIR=/tmp/oct_cache  # Optional local caching
+
+# PyTorch 2.7 specific optimizations
+export PJRT_DEVICE=TPU
+export XLA_FLAGS="--xla_gpu_enable_triton_softmax_fusion=true"
 ```
 
 ### W&B Configuration
@@ -159,12 +165,46 @@ python -m data_setup.test_data_pipeline
 ```
 
 ### Training Commands
+
+#### Local Execution (on TPU VM)
 ```bash
 # Single-domain pretraining
 bash run_tpu.sh configs/pretrain_vjepa_single_domain.yaml
 
 # Multi-domain pretraining
 bash run_tpu.sh configs/pretrain_vjepa_multi_domain.yaml
+
+# Smoke test
+bash run_tpu.sh configs/smoke_test.yaml
+```
+
+#### Remote Execution (from local machine)
+```bash
+# Set environment variables
+export TPU_NAME=oct-jepa2-v4-32
+export ZONE=us-central2-b
+export PROJECT_ID=your-project-id
+
+# Single-domain pretraining
+gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
+    --zone=${ZONE} \
+    --project=${PROJECT_ID} \
+    --worker=all \
+    --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && bash run_tpu.sh configs/pretrain_vjepa_single_domain.yaml"
+
+# Smoke test
+gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
+    --zone=${ZONE} \
+    --project=${PROJECT_ID} \
+    --worker=0 \
+    --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && bash run_tpu.sh configs/smoke_test.yaml"
+
+# Check TPU status
+gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
+    --zone=${ZONE} \
+    --project=${PROJECT_ID} \
+    --worker=0 \
+    --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && python -c 'import torch_xla.runtime as xr; print(\"TPU cores:\", xr.local_device_count())'"
 ```
 
 ### Development Commands

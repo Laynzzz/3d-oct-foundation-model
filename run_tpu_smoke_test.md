@@ -10,8 +10,8 @@ gcloud compute ssh oct-jepa2-v4-32 --zone=us-central2-b
 
 ### 2. Verify Environment
 ```bash
-# Check TPU is available
-python -c "import torch_xla; print('TPU cores:', torch_xla.xrt.device_count())"
+# Check TPU is available (PyTorch 2.7 compatible)
+python -c "import torch_xla.runtime as xr; print('TPU cores:', xr.local_device_count())"
 
 # Verify Python environment
 which python
@@ -72,7 +72,7 @@ print('✅ All imports successful')
 print(f'PyTorch: {torch.__version__}')
 print(f'XLA: {torch_xla.__version__}')
 print(f'TPU device: {xm.xla_device()}')
-print(f'TPU cores: {xr.device_count()}')
+print(f'TPU cores: {xr.local_device_count()}')
 "
 ```
 

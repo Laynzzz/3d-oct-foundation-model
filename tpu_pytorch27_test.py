@@ -43,8 +43,8 @@ def test_pytorch_xla_versions():
         print(f"✅ XLA runtime initialized: {torch_xla._XLAC.is_runtime_initialized()}")
         
         # Test device count API (new in 2.7)
-        device_count = xr.device_count()
-        print(f"✅ TPU device count: {device_count}")
+        device_count = xr.local_device_count()
+        print(f"✅ TPU local device count: {device_count}")
         
         if device_count == 0:
             print("❌ No TPU devices found!")
