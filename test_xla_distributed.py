@@ -35,9 +35,10 @@ def _mp_fn(index):
     
     print(f"Worker {index}: Model created, params: {sum(p.numel() for p in model.parameters()):,}")
     
-    # Create test input
+    # Create test inputs (V-JEPA needs context and target views)
     batch_size = 1
-    test_input = torch.randn(batch_size, 1, 64, 384, 384).to(device)
+    context_view = torch.randn(batch_size, 1, 64, 384, 384).to(device)
+    target_view = torch.randn(batch_size, 1, 64, 384, 384).to(device)
     test_mask = torch.ones(batch_size, 64//4 * 384//16 * 384//16).bool().to(device)
     test_mask[:, :int(0.6 * test_mask.size(1))] = False  # 60% masked
     
@@ -45,7 +46,7 @@ def _mp_fn(index):
     
     # Forward pass
     with torch.no_grad():
-        loss, preds, targets = model(test_input, test_mask)
+        loss, preds, targets = model(context_view, target_view, test_mask)
     
     print(f"Worker {index}: Forward pass complete, loss: {loss.item():.6f}")
     
