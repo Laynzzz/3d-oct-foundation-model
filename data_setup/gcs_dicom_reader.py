@@ -72,85 +72,85 @@ class GCSDICOMReader:
         for attempt in range(max_retries + 1):
             try:
                 file_opener = self._get_file_opener(gcs_path)
-            
-            with file_opener() as f:
-                # Read DICOM with deferred loading for large files
-                dataset = pydicom.dcmread(
-                    BytesIO(f.read()),
-                    force=True,
-                    defer_size='512 KB'
-                )
                 
-            # Force decompression to handle compressed DICOM files
-            try:
-                if hasattr(dataset, 'decompress'):
-                    dataset.decompress()
-                logger.debug(f"Successfully decompressed DICOM: {gcs_path}")
+                with file_opener() as f:
+                    # Read DICOM with deferred loading for large files
+                    dataset = pydicom.dcmread(
+                        BytesIO(f.read()),
+                        force=True,
+                        defer_size='512 KB'
+                    )
+                
+                # Force decompression to handle compressed DICOM files
+                try:
+                    if hasattr(dataset, 'decompress'):
+                        dataset.decompress()
+                    logger.debug(f"Successfully decompressed DICOM: {gcs_path}")
+                except Exception as e:
+                    logger.warning(f"Decompression failed for {gcs_path}: {e}")
+                    # Continue anyway - some files may not need decompression
+                
+                # Fallback: Convert transfer syntax if compression fails
+                try:
+                    if hasattr(dataset, 'file_meta') and hasattr(dataset.file_meta, 'TransferSyntaxUID'):
+                        from pydicom.uid import ExplicitVRLittleEndian
+                        if dataset.file_meta.TransferSyntaxUID != ExplicitVRLittleEndian:
+                            logger.debug(f"Converting transfer syntax for {gcs_path}")
+                            dataset.file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+                except Exception as e:
+                    logger.debug(f"Transfer syntax conversion failed for {gcs_path}: {e}")
+                
+                # Extract pixel data
+                if not hasattr(dataset, 'pixel_array'):
+                    logger.warning(f"No pixel data found in {gcs_path}")
+                    self.skipped_files += 1
+                    return None
+                
+                pixel_array = dataset.pixel_array
+                
+                # Apply rescale slope/intercept if present
+                pixel_array = self._apply_rescaling(pixel_array, dataset)
+                
+                # Extract spacing information
+                spacing = self._extract_spacing(dataset)
+                
+                # Extract metadata
+                metadata = self._extract_metadata(dataset)
+                
+                # Normalize to float32 and apply z-score normalization
+                pixel_array = self._normalize_volume(pixel_array)
+                
+                return {
+                    'pixel_array': pixel_array,
+                    'spacing': spacing,
+                    'metadata': metadata,
+                    'filepath': gcs_path
+                }
+                
+            except (InvalidDicomError, FileNotFoundError, PermissionError) as e:
+                if attempt < max_retries:
+                    logger.warning(f"Attempt {attempt + 1} failed for {gcs_path}: {type(e).__name__}: {e}")
+                    continue
+                else:
+                    logger.warning(f"Failed to read DICOM {gcs_path} after {max_retries + 1} attempts: {type(e).__name__}: {e}")
+                    self.skipped_files += 1
+                    return None
             except Exception as e:
-                logger.warning(f"Decompression failed for {gcs_path}: {e}")
-                # Continue anyway - some files may not need decompression
+                if attempt < max_retries:
+                    logger.warning(f"Attempt {attempt + 1} failed for {gcs_path}: {type(e).__name__}: {e}")
+                    continue
+                else:
+                    logger.error(f"Unexpected error reading {gcs_path} after {max_retries + 1} attempts: {type(e).__name__}: {e}")
+                    # Log more details for debugging
+                    import traceback
+                    logger.debug(f"Full traceback: {traceback.format_exc()}")
+                    self.skipped_files += 1
+                    return None
                 
-            # Fallback: Convert transfer syntax if compression fails
-            try:
-                if hasattr(dataset, 'file_meta') and hasattr(dataset.file_meta, 'TransferSyntaxUID'):
-                    from pydicom.uid import ExplicitVRLittleEndian
-                    if dataset.file_meta.TransferSyntaxUID != ExplicitVRLittleEndian:
-                        logger.debug(f"Converting transfer syntax for {gcs_path}")
-                        dataset.file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
-            except Exception as e:
-                logger.debug(f"Transfer syntax conversion failed for {gcs_path}: {e}")
-                
-            # Extract pixel data
-            if not hasattr(dataset, 'pixel_array'):
-                logger.warning(f"No pixel data found in {gcs_path}")
-                self.skipped_files += 1
-                return None
-                
-            pixel_array = dataset.pixel_array
-            
-            # Apply rescale slope/intercept if present
-            pixel_array = self._apply_rescaling(pixel_array, dataset)
-            
-            # Extract spacing information
-            spacing = self._extract_spacing(dataset)
-            
-            # Extract metadata
-            metadata = self._extract_metadata(dataset)
-            
-            # Normalize to float32 and apply z-score normalization
-            pixel_array = self._normalize_volume(pixel_array)
-            
-            return {
-                'pixel_array': pixel_array,
-                'spacing': spacing,
-                'metadata': metadata,
-                'filepath': gcs_path
-            }
-                
-        except (InvalidDicomError, FileNotFoundError, PermissionError) as e:
-            if attempt < max_retries:
-                logger.warning(f"Attempt {attempt + 1} failed for {gcs_path}: {type(e).__name__}: {e}")
-                continue
-            else:
-                logger.warning(f"Failed to read DICOM {gcs_path} after {max_retries + 1} attempts: {type(e).__name__}: {e}")
-                self.skipped_files += 1
-                return None
-        except Exception as e:
-            if attempt < max_retries:
-                logger.warning(f"Attempt {attempt + 1} failed for {gcs_path}: {type(e).__name__}: {e}")
-                continue
-            else:
-                logger.error(f"Unexpected error reading {gcs_path} after {max_retries + 1} attempts: {type(e).__name__}: {e}")
-                # Log more details for debugging
-                import traceback
-                logger.debug(f"Full traceback: {traceback.format_exc()}")
-                self.skipped_files += 1
-                return None
-                
-    # If we get here, all retries failed
-    logger.error(f"All {max_retries + 1} attempts failed for {gcs_path}")
-    self.skipped_files += 1
-    return None
+        # If we get here, all retries failed
+        logger.error(f"All {max_retries + 1} attempts failed for {gcs_path}")
+        self.skipped_files += 1
+        return None
     
     def _apply_rescaling(self, pixel_array: np.ndarray, dataset: pydicom.Dataset) -> np.ndarray:
         """Apply DICOM rescale slope and intercept.
