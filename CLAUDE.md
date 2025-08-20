@@ -3,107 +3,25 @@
 ## Project Overview
 3D Retinal OCT Foundation Model using Video Joint-Embedding Predictive Architecture (V-JEPA2) for self-supervised learning on retinal OCT volumes.
 
-## Current Implementation Status
+## ✅ **PRODUCTION READY - TRAINING OPERATIONAL**
 
-### ✅ Completed (Sections 1-5)
+The complete V-JEPA2 3D OCT foundation model is **fully operational** and successfully running distributed training on 16 TPU cores with W&B monitoring.
 
-#### Section 1-2: Project Setup & Tech Stack
-- **Project structure** created with all directories (`configs/`, `data_setup/`, `models/`, `pretraining/`, `finetuning/`, `utils/`)
-- **Requirements.txt** with complete dependency list (PyTorch, torch-xla, MONAI, pydicom, gcsfs, etc.)
-- **TPU training script** (`run_tpu.sh`) configured for 8-core TPU execution
-- **Configuration files**:
-  - `configs/pretrain_vjepa_single_domain.yaml` - Single domain (topcon_triton) training
-  - `configs/pretrain_vjepa_multi_domain.yaml` - Multi-domain (all 4 devices) training
-- **Utility modules**:
-  - `utils/config_parser.py` - YAML config loading and validation
-  - `utils/logging_setup.py` - Logging, W&B setup, metrics tracking
+### Current Implementation Status
 
-#### Section 3: Data Handling (GCS ↔ TPU)
-- **GCS DICOM Reader** (`data_setup/gcs_dicom_reader.py`):
-  - Stream DICOM reading from GCS with `gcsfs` + `pydicom`
-  - Support for `pylibjpeg` backends (JPEG2000)
-  - Per-frame spacing extraction from DICOM functional groups
-  - Z-score normalization per volume
-  - Local caching with `fsspec` (optional)
-  - Error handling for corrupt/missing files
-  
-- **Manifest Parser** (`data_setup/manifest_parser.py`):
-  - TSV manifest parsing with device detection
-  - File list generation for single-domain (`topcon_triton`) and multi-domain training
-  - Stratified splitting by device/anatomic region/laterality
-  - Statistics and filtering capabilities
-  
-- **Dataset Expansion** (`data_setup/expand_gcs_dataset.py`):
-  - ✅ **COMPLETED**: ZIP files extracted to individual DICOM files
-  - Stream-unzip directly from/to GCS (no local disk usage)
-  - Structured paths: `gs://layne-tpu-code-sync/OCTdata/OCTdata/retinal_oct/structural_oct/<device>/<participant_id>/<file>.dcm`
-  - All 4 devices processed: `heidelberg_spectralis`, `topcon_triton`, `topcon_maestro2`, `zeiss_cirrus`
-
-#### Section 4: Datasets, Splits & Transforms
-- **OCTDICOMDataset** (`data_setup/datasets.py`):
-  - ✅ **API**: `OCTDICOMDataset(manifest_path, gcs_root, file_list, transforms, use_cache)`
-  - ✅ **Returns**: `{'image': Tensor[C=1,D,H,W], 'spacing': (dz,dy,dx), 'meta': {...}}`
-  - ✅ **Image shape policy**: resample to fixed voxel spacing `(0.05, 0.02, 0.02)` mm → resize/crop to `64×384×384`
-  - ✅ **File lists**: `create_file_lists()` for single-domain/multi-domain strategies
-  - ✅ **Stratified splits**: `stratified_split_by_device()` by anatomic region & laterality
-  - ✅ **Custom collate**: `collate_fn()` handles None samples gracefully
-
-- **MONAI 3D Transforms** (`data_setup/transforms.py`):
-  - ✅ **LoadDICOMd**: Custom loader for GCS-streamed DICOM data
-  - ✅ **Spacingd**: Target spacing `(0.05, 0.02, 0.02)` mm
-  - ✅ **NormalizeIntensityd**: Intensity normalization
-  - ✅ **RandSpatialCropd**: Sample 3D patches
-  - ✅ **RandFlipd**: Spatial axes flipping
-  - ✅ **RandAffined**: Small translations/rotations
-  - ✅ **RandGaussianNoised**: Low σ = 0.05
-  - ✅ **JEPAMaskGeneratord**: Binary mask for JEPA targets, mask ratio = 0.6
-  - ✅ **TwoViewTransform**: Creates context and target views for JEPA
-  - ✅ **Validation transforms**: No-augmentation pipeline
-
-### ✅ Completed (Sections 1-6)
-
-#### Section 5: V-JEPA2 3D Model
-- [x] **3D ViT Backbone** (`models/vjepa_3d.py`):
-  - ✅ **VisionTransformer3D**: embed_dim=768, depth=12, patch_size=(4,16,16)
-  - ✅ **PatchEmbed3D**: 3D patch embedding for OCT volumes
-  - ✅ **Attention3D**: Multi-head self-attention for 3D patches
-  - ✅ **Block3D**: Transformer blocks with DropPath regularization
-  - ✅ **Position embeddings**: Learnable 3D position encoding
-- [x] **Context and Target Encoders**:
-  - ✅ **EMAEncoder**: Target encoder with exponential moving average
-  - ✅ **cosine_ema_schedule**: EMA momentum schedule from 0.996 → 1.0
-  - ✅ **Gradient isolation**: Target encoder parameters frozen
-- [x] **Predictor Network**:
-  - ✅ **Predictor**: 2-layer MLP with BatchNorm + GELU activation
-  - ✅ **Hidden dimension**: Configurable (default = embed_dim)
-- [x] **Loss Function**:
-  - ✅ **NormalizedMSELoss**: L2-normalized cosine-style regression
-  - ✅ **Masked prediction**: Loss computed only on masked patches
-- [x] **Complete VJEPA3D Model**:
-  - ✅ **Integrated architecture**: Context encoder + Target encoder + Predictor
-  - ✅ **Forward pass**: Returns loss, predictions, targets
-  - ✅ **EMA updates**: Automatic target encoder momentum updates
-  - ✅ **Inference methods**: encode_context() and encode_target()
-
-#### Section 6: XLA/TPU Training ✅ COMPLETE
-- [x] **Complete Training Script** (`pretraining/train.py`):
-  - ✅ **XLA best practices**: Device placement, parallel loader, optimizer step
-  - ✅ **Distributed training**: 8-core TPU with `xla_spawn` launcher
-  - ✅ **Mixed precision**: BF16 support with autocast
-  - ✅ **Gradient accumulation**: Configurable steps for memory efficiency
-  - ✅ **Learning rate scheduling**: Cosine annealing with warmup
-  - ✅ **Error handling**: Automatic OOM recovery with batch size reduction
-- [x] **Config Integration**: YAML loading, validation, and interpolation
-- [x] **W&B Logging**: Metrics, artifacts, and system info tracking
-- [x] **Checkpoint System**: GCS saving/loading with W&B artifacts
-- [x] **Robust Error Handling**: OOM detection and automatic recovery
+**All Core Components Complete:**
+- ✅ **Data Pipeline**: GCS DICOM streaming with robust validation
+- ✅ **V-JEPA2 Model**: 29.4M parameter 3D ViT with EMA target encoder  
+- ✅ **Training Infrastructure**: XLA distributed training on 16 TPU cores
+- ✅ **Monitoring**: W&B integration with metrics and checkpointing
+- ✅ **Error Handling**: Robust DICOM validation and empty batch handling
 
 ## Environment Configuration
 
 ### TPU VM Details
 - **Instance**: `oct-jepa2-v4-32` (zone: `us-central2-b`)
 - **Python Environment**: `/home/layne/miniconda/envs/torch-xla/bin/python`
-- **Cores**: 8 TPU v4 cores
+- **Cores**: 16 TPU v4 cores (4 workers × 4 cores each)
 - **PyTorch Version**: 2.7.1
 - **XLA Version**: 2.7.0
 
@@ -111,57 +29,68 @@
 - **Bucket**: `gs://layne-tpu-code-sync/OCTdata/OCTdata`
 - **Manifest**: `gs://layne-tpu-code-sync/OCTdata/OCTdata/manifest.tsv`
 - **Checkpoints**: `gs://layne-tpu-code-sync/checkpoints/vjepa2/`
-- **Data Structure**: Individual DICOM files now available at structured paths
+- **Data Structure**: Individual DICOM files at structured paths
 
-### Key Environment Variables
+### Environment Variables
 ```bash
-export XLA_USE_BF16=1
+export PATH=/home/layne/miniconda/envs/torch-xla/bin:$PATH  # ALWAYS set this
 export TF_CPP_MIN_LOG_LEVEL=1
+export PJRT_DEVICE=TPU
 export DATA_CACHE_DIR=/tmp/oct_cache  # Optional local caching
 
-# PyTorch 2.7 specific optimizations
-export PJRT_DEVICE=TPU
-export XLA_FLAGS="--xla_gpu_enable_triton_softmax_fusion=true"
+# Optional: Deprecated XLA_USE_BF16 (use config use_bf16 instead)
+export XLA_USE_BF16=1
 ```
 
 ### W&B Configuration
-- **Project**: `oct-foundation`
-- **Entity**: `layne`
+- **Project**: `3d-oct-foundation-model`
+- **Entity**: `laynzzz-university-at-buffalo`
 - **Artifacts**: Checkpoint saving enabled
 
 ## Training Configuration
 
-### Spatial Parameters
+### Dataset
+- **Available data**: 601 OCT volumes from participants 1001-1100
+- **Devices**: heidelberg_spectralis, topcon_triton, topcon_maestro2, zeiss_cirrus
+- **Data loading**: Single-threaded (`workers: 0`) for stability
+- **Validation**: Enhanced DICOM pixel data checking
+
+### Model Parameters
+- **Architecture**: V-JEPA2 3D ViT
+- **Parameters**: 29.4M
+- **Embed dim**: 768, depth: 12
+- **Patch size**: [4, 16, 16]
 - **Target spacing**: [0.05, 0.02, 0.02] mm (dz, dy, dx)
 - **Image size**: [64, 384, 384] (D, H, W)
-- **Patch size**: [4, 16, 16]
 - **Mask ratio**: 0.6
 
 ### Training Parameters
+**Production Training:**
 - **Global batch size**: 128
-- **Per-core batch size**: 2
-- **Gradient accumulation**: 8 steps
+- **Per-core batch size**: 2  
+- **Gradient accumulation**: 4 steps
 - **Learning rate**: 1.5e-3
 - **Weight decay**: 0.05
 - **Epochs**: 120 (single-domain), 150 (multi-domain)
-- **EMA base**: 0.996
+- **Mixed precision**: `use_bf16: true`
 
-### Device Statistics (Post-Expansion)
-Based on manifest analysis:
-- **heidelberg_spectralis**: [number] files
-- **topcon_triton**: [number] files  
-- **topcon_maestro2**: [number] files
-- **zeiss_cirrus**: [number] files
+**Smoke Test:**
+- **Global batch size**: 8
+- **Per-core batch size**: 1
+- **Gradient accumulation**: 1 step
+- **Max steps**: 10
+- **Mixed precision**: `use_bf16: true`
 
 ## Commands Reference
 
-### Dataset Operations
-```bash
-# Validate dataset expansion
-python run_dataset_expansion.py --validate-only
+### 🚨 **CRITICAL: Always use `--worker=all`**
+TPU distributed training requires coordination across all workers. Use `--worker=all` for training, dependency installation, and git operations.
 
-# Test data pipeline
-python -m data_setup.test_data_pipeline
+```bash
+# Environment variables for remote execution
+export TPU_NAME=oct-jepa2-v4-32
+export ZONE=us-central2-b
+export PROJECT_ID=d-oct-foundational-model
 ```
 
 ### Training Commands
@@ -169,59 +98,47 @@ python -m data_setup.test_data_pipeline
 #### Local Execution (on TPU VM)
 ```bash
 # Single-domain pretraining
-bash run_tpu.sh configs/pretrain_vjepa_single_domain.yaml
+bash run_tpu_xla.sh configs/pretrain_vjepa_single_domain.yaml
 
 # Multi-domain pretraining
-bash run_tpu.sh configs/pretrain_vjepa_multi_domain.yaml
+bash run_tpu_xla.sh configs/pretrain_vjepa_multi_domain.yaml
 
 # Smoke test
-bash run_tpu.sh configs/smoke_test.yaml
+bash run_tpu_xla.sh configs/smoke_test.yaml
 ```
 
 #### Remote Execution (from local machine)
-
-**⚠️ CRITICAL: Always use `--worker=all` for training commands. TPU distributed training requires coordination across all workers.**
-
 ```bash
-# Set environment variables
-export TPU_NAME=oct-jepa2-v4-32
-export ZONE=us-central2-b
-export PROJECT_ID=your-project-id
-
-# Single-domain pretraining (MUST use worker=all)
+# Smoke test
 gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
     --zone=${ZONE} \
     --project=${PROJECT_ID} \
     --worker=all \
-    --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && bash run_tpu.sh configs/pretrain_vjepa_single_domain.yaml"
+    --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && bash run_tpu_xla.sh configs/smoke_test.yaml"
 
-# Smoke test (MUST use worker=all)
+# Single-domain pretraining
 gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
     --zone=${ZONE} \
     --project=${PROJECT_ID} \
     --worker=all \
-    --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && bash run_tpu.sh configs/smoke_test.yaml"
+    --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && bash run_tpu_xla.sh configs/pretrain_vjepa_single_domain.yaml"
 
-# Multi-domain pretraining (MUST use worker=all)
+# Multi-domain pretraining
 gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
     --zone=${ZONE} \
     --project=${PROJECT_ID} \
     --worker=all \
-    --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && bash run_tpu.sh configs/pretrain_vjepa_multi_domain.yaml"
+    --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && bash run_tpu_xla.sh configs/pretrain_vjepa_multi_domain.yaml"
+```
 
-# Check TPU status (can use worker=all or single worker)
+### Development Commands
+```bash
+# Pull code updates to all workers (MUST use worker=all)
 gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
     --zone=${ZONE} \
     --project=${PROJECT_ID} \
     --worker=all \
-    --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && python -c 'import torch_xla.runtime as xr; print(\"TPU cores:\", xr.local_device_count())'"
-
-# Clone repository to all workers (MUST use worker=all)
-gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
-    --zone=${ZONE} \
-    --project=${PROJECT_ID} \
-    --worker=all \
-    --command="cd /home/layne && git clone https://github.com/Laynzzz/3d-oct-foundation-model.git"
+    --command="cd ~/3d-oct-foundation-model && git pull"
 
 # Install dependencies on all workers (MUST use worker=all)
 gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
@@ -230,283 +147,85 @@ gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
     --worker=all \
     --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && pip install -r requirements.txt"
 
-# Pull code updates to all workers (MUST use worker=all)
+# Check TPU status
 gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
     --zone=${ZONE} \
     --project=${PROJECT_ID} \
     --worker=all \
-    --command="cd ~/3d-oct-foundation-model && git pull"
+    --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && python -c 'import torch_xla.runtime as xr; print(\"TPU cores:\", xr.local_device_count())'"
 ```
 
-### Development Commands
-```bash
-# Install dependencies
-pip install -r requirements.txt
+## Technical Implementation Details
 
-# Run tests (when implemented)
-python -m pytest tests/
+### Data Pipeline
+- **GCS DICOM Reader**: Streaming with enhanced pixel data validation
+- **Manifest Parser**: TSV parsing with device detection and participant filtering
+- **Transforms**: MONAI 3D pipeline with memory-efficient processing
+- **Error Handling**: Graceful handling of corrupted/missing DICOM files
+
+### V-JEPA2 Architecture
+- **Context Encoder**: 3D ViT backbone with learnable position embeddings
+- **Target Encoder**: EMA-updated encoder with momentum scheduling (0.996 → 1.0)
+- **Predictor**: 2-layer MLP with BatchNorm + GELU activation
+- **Loss Function**: Normalized MSE loss on masked patches
+
+### XLA/TPU Training
+- **Distributed**: 16 TPU cores with XLA multiprocessing
+- **Mixed Precision**: BF16 support via config (`use_bf16: true`)
+- **Memory Management**: Gradient accumulation + automatic OOM recovery
+- **Checkpointing**: GCS-based saving with W&B artifact integration
+- **Multiprocessing**: `forkserver` start method for Python 3.11 + XLA 2.7.0 compatibility
+
+## PyTorch 2.7.1 / XLA 2.7.0 Compatibility
+
+### Key Changes
+- **API Updates**: Use `torch_xla.runtime.world_size()` instead of deprecated `xm.xrt_world_size()`
+- **Launcher**: Use `xmp.spawn(_mp_fn, nprocs=None)` - let XLA auto-detect devices
+- **Environment**: Set `PJRT_DEVICE=TPU` for device coordination
+- **Multiprocessing**: Use `forkserver` start method for compatibility
+
+### Verified Working Configuration
+- ✅ **16 TPU workers** spawned successfully across 4 nodes
+- ✅ **V-JEPA3D model** (29.4M parameters) running on all workers
+- ✅ **W&B monitoring** with concurrent runs
+- ✅ **Data pipeline** with robust DICOM validation
+- ✅ **No crashes** from empty batches or corrupted files
+
+## Recent Improvements (August 2025)
+
+### DICOM Validation Enhancement
+- **Enhanced validation**: Check for PixelData tag `(7FE0,0010)` before accessing pixel_array
+- **Graceful error handling**: Skip corrupted files instead of crashing
+- **Empty batch handling**: Return `None` from collate function instead of raising `RuntimeError`
+
+### Warning Fixes
+- **Gradient accumulation**: Fixed batch size consistency warnings
+- **BF16 modernization**: Added `use_bf16` config option to replace deprecated `XLA_USE_BF16`
+- **Training pipeline**: Now runs warning-free while maintaining functionality
+
+### Training Pipeline Status
+```
+✅ XLA distributed training: 16 TPU workers operational
+✅ W&B monitoring: Multiple concurrent runs active  
+✅ Data pipeline: 601 DICOM files processed successfully
+✅ Error handling: Robust validation prevents crashes
+✅ Mixed precision: Modern BF16 configuration working
+✅ Warning-free: All configuration issues resolved
 ```
 
-## 🔥 CRITICAL TPU Rules & Requirements
+## Troubleshooting
 
-### 🚨 MANDATORY: worker=all Usage
-**Use `--worker=all` for consistency and proper coordination across all TPU workers**
-
-- ✅ **ALWAYS**: `--worker=all` for training, dependency installation, git operations
-- ✅ **OK for testing**: Single worker (`--worker=0`) for simple tests, but use `--worker=all` for consistency
-- **Why**: TPU v4 has 4 workers × 4 cores = 16 total cores. Using `--worker=all` ensures all workers stay synchronized.
-
-### 🔧 PyTorch 2.7.1 / XLA 2.7.0 Compatibility
-
-#### ✅ Verified Working Configuration
-- **PyTorch**: 2.7.1+cu126
-- **XLA**: 2.7.0
-- **V-JEPA3D Model**: 29.4M parameters ✅ 
-- **XLA Distributed Training**: Working on all 16 TPU cores (4 workers × 4 cores) ✅
-- **Forward/Backward Pass**: Working across all workers ✅
-- **Loss computation**: ~0.0052 ✅
-- **Worker synchronization**: All 16 workers completing successfully ✅
-
-#### API Changes for PyTorch 2.7
-**Deprecated APIs replaced**:
-```python
-# OLD (doesn't exist in XLA 2.7)
-xm.get_ordinal()
-xm.is_master_ordinal()
-xm.xrt_world_size()
-
-# NEW (working in XLA 2.7)
-import os
-local_rank = int(os.environ.get('LOCAL_RANK', 0))
-is_master = local_rank == 0
-import torch_xla.runtime as xr
-world_size = xr.world_size()
-```
-
-#### Environment Setup (Required)
-```bash
-export PATH=/home/layne/miniconda/envs/torch-xla/bin:$PATH  # ALWAYS set this
-export XLA_USE_BF16=1
-export TF_CPP_MIN_LOG_LEVEL=1
-export PJRT_DEVICE=TPU
-```
-
-#### Code Synchronization (Required)
-```bash
-# ALWAYS sync code to all workers before training
-gcloud compute tpus tpu-vm ssh ${TPU_NAME} --zone=${ZONE} --worker=all --command="cd ~/3d-oct-foundation-model && git pull"
-```
-
-#### Dependency Installation (Required)
-```bash
-# ALWAYS install on all workers
-gcloud compute tpus tpu-vm ssh ${TPU_NAME} --zone=${ZONE} --worker=all --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && pip install -r requirements.txt"
-```
-
-### 🐛 Common Issues & Solutions
-
-#### TPU Device Permission Errors
-```
-RuntimeError: TPU initialization failed: open(/dev/accel*): Operation not permitted
-```
-**Solution**: Usually resolves automatically after a few attempts. If persistent, may need TPU restart, but this is rare.
-
-#### Distributed Training Issues with torchrun
-**Issue**: `torchrun` may have permission conflicts with multiple TPU processes
-**Workaround**: Single-process testing works reliably. Distributed training may need additional configuration.
-
-### 🎉 XLA Distributed Training Validation
-**XLA Distributed Test**: ✅ **BREAKTHROUGH - WORKING on all 16 TPU cores**
-```bash
-gcloud compute tpus tpu-vm ssh ${TPU_NAME} --zone=${ZONE} --worker=all --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && python test_xla_distributed.py"
-```
-
-**Results**:
-- ✅ **16 workers** spawned successfully (Workers 0-15) across all TPU nodes
-- ✅ **29.4M parameter V-JEPA3D** model creation on all workers
-- ✅ **Forward pass working**: Loss ~0.0052 on all workers
-- ✅ **Worker synchronization**: "All workers completed successfully!"  
-- ✅ **PyTorch 2.7.1 + XLA 2.7.0** distributed training compatibility
-
-#### Import Errors
-**Common fix**: Ensure `torch` is imported in all utility modules
-```python
-import torch  # Required for type hints like torch.nn.Module
-```
-
-### 🎯 Training Launch Rules
-
-#### ✅ FIXED: Correct Launcher (PyTorch 2.7 + XLA 2.7)
-```bash
-# BROKEN: torchrun (TPU device permission issues)
-torchrun --nproc_per_node=4 pretraining/train.py --config configs/smoke_test.yaml
-
-# BROKEN: explicit xla_spawn worker count 
-python -m torch_xla.distributed.xla_spawn --num_workers=4
-
-# ✅ WORKING: XLA multiprocessing with nprocs=None
-# In training script: xmp.spawn(_mp_fn, nprocs=None)
-# Direct Python execution: python pretraining/train.py --config configs/smoke_test.yaml
-```
-
-#### 🔑 Key Learning: XLA 2.7 PJRT Requirements
-- **Critical**: Use `xmp.spawn(fn, nprocs=None)` - let XLA auto-detect devices
-- **Error with explicit counts**: `nprocs=4` fails with "Unsupported nprocs" 
-- **Success pattern**: XLA spawns across all 16 TPU cores automatically
-- **Environment**: Use `PJRT_DEVICE=TPU` and let XLA handle worker coordination
-
-#### Batch Size Configuration
-- **Global batch size**: Must be divisible by (num_workers × nproc_per_node)
-- **TPU v4**: 4 workers × 4 processes = 16 total processes
-- **Example**: global_batch_size=128, per_core_batch_size=8, grad_accum_steps=1
+### Common Issues
+- **TPU Permission Errors**: Usually resolve automatically after retry
+- **Empty Batches**: Now handled gracefully - training continues with next batch
+- **DICOM Corruption**: Files without pixel data are automatically skipped
+- **Memory Issues**: Automatic OOM recovery with batch size reduction
 
 ### OOM Handling Strategy
 1. Halve `per_core_batch_size`
-2. If <1, set to 1 and increase `grad_accum_steps`
-3. If still OOM, reduce `image_size` to 64×320×320
-
-### Error Handling
-- **Bad files**: Log warning, skip, continue processing
-- **Missing spacing**: Default to [1.0, 1.0, 1.0] mm, log assumption
-- **Multi-process failures**: Retry with `--num_workers=1`
-- **TPU initialization failures**: Restart TPU and retry
-
-## Data Pipeline Verification
-
-### Pre-Flight Checklist
-- [x] GCS bucket accessible
-- [x] Individual DICOM files extracted from ZIPs
-- [x] Manifest TSV parsed successfully
-- [x] Device detection working
-- [x] DICOM reading with metadata extraction
-- [x] `OCTDICOMDataset` class implemented
-- [x] MONAI 3D transform pipeline created
-- [x] JEPA mask generation implemented
-- [x] Two-view transform for context/target views
-- [ ] Sample volumes loaded and visualized (verification notebook needed)
-- [ ] End-to-end data pipeline tested
-- [ ] Mask generation validated with visualizations
-
-## Next Immediate Tasks
-1. Create verification notebook for data pipeline testing
-2. Implement 3D ViT + V-JEPA2 architecture (Section 5)
-3. Set up training loop with XLA optimization (Section 6)
-4. Run smoke test with 16-32 volumes
-5. Phase 1 verification: load sample data with transforms
-
-### Implementation Status: Sections 1-6 ✅ COMPLETE
-
-#### ✅ **Phase 1-2**: Data Pipeline + V-JEPA2 Model
-- **Dataset class**: Ready for training with GCS streaming
-- **Transform pipeline**: Full MONAI 3D implementation with JEPA masking
-- **File management**: Single/multi-domain splits ready
-- **Mask generation**: JEPA targets with 0.6 ratio
-- **GCS integration**: Stream processing optimized
-- **V-JEPA2 Model**: Complete 3D ViT architecture with EMA target encoder
-- **Loss function**: Normalized MSE on masked patches
-- **Training components**: Context/target encoders + predictor ready
-
-#### ✅ **Phase 3**: XLA/TPU Training Infrastructure - **COMPLETE & OPERATIONAL**
-- **Training script**: Full `pretraining/train.py` with XLA optimization ✅
-- **Distributed training**: 16-core TPU support with proper synchronization ✅
-- **Memory management**: Gradient accumulation + automatic OOM recovery ✅
-- **Mixed precision**: BF16 support for TPU efficiency ✅
-- **Monitoring**: W&B integration with metrics and artifact saving ✅
-- **Checkpointing**: GCS-based saving with resume capability ✅
-- **Error handling**: Robust recovery from training failures ✅
-
-#### ✅ **Phase 4**: Production Training Infrastructure - **COMPLETE**
-- **W&B Authentication**: API key configured on all 16 TPU cores ✅
-- **Distributed Coordination**: XLA multiprocessing working across 4 TPU nodes ✅
-- **Data Pipeline**: File loading and train/val splits functional ✅
-- **End-to-end Validation**: Full training pipeline tested and operational ✅
-- **Production Monitoring**: Multiple W&B runs successfully logged ✅
-
-## 🎉 **PRODUCTION READY - TRAINING OPERATIONAL**
-
-The complete V-JEPA2 3D OCT foundation model is **fully operational** and successfully running distributed training on 16 TPU cores with W&B monitoring.
-
-### ✅ **TRAINING EXECUTION - SUCCESSFUL**
-
-**Verified Working Command:**
-```bash
-gcloud compute tpus tpu-vm ssh oct-jepa2-v4-32 --zone=us-central2-b --project=d-oct-foundational-model --worker=all --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && bash run_tpu_xla.sh configs/smoke_test.yaml"
-```
-
-**Training Results - OPERATIONAL ✅:**
-- **16 TPU workers** successfully spawned across 4 nodes
-- **V-JEPA3D model** (29.4M parameters) running on all workers
-- **W&B monitoring** active with 16 concurrent runs logged
-- **Dashboard URLs**: https://wandb.ai/layne/oct-foundation/runs/[run-id]
-- **Authentication**: API key `8b3aa22128a343...` configured on all workers
-
-### **Production Training Commands:**
-```bash
-# Single-domain pretraining (READY)
-bash run_tpu_xla.sh configs/pretrain_vjepa_single_domain.yaml
-
-# Multi-domain pretraining (READY)  
-bash run_tpu_xla.sh configs/pretrain_vjepa_multi_domain.yaml
-```
-
-## 🚀 **CRITICAL ISSUES RESOLVED - TRAINING OPERATIONAL** ✅
-
-### **Multiple Issues Discovered and Fixed (August 20, 2025)**
-
-#### **Issue 1: Transform Memory Explosion** ✅ FIXED
-**Problem**: `Spacingd` transform attempting to allocate 414TB of memory
-**Root Cause**: Resampling from 1.0mm → 0.05mm created 20³ = 8000x volume increase
-**Solution**: Removed `Spacingd`, use direct `Resized` to (64×384×384) dimensions
-
-#### **Issue 2: Dataset Participant Range Mismatch** ✅ FIXED
-**Problem**: Manifest contains 6,554 files but only 601 from participants 1001-1100 exist
-**Root Cause**: Manifest references participants beyond available data range
-**Solution**: Added participant filtering to `create_file_lists()` with range (1001, 1100)
-
-#### **Issue 3: DataLoader Multiprocessing Error** ✅ FIXED
-**Problem**: `TypeError: 'mappingproxy' object does not support item assignment`
-**Root Cause**: PyTorch multiprocessing serialization issue with custom transforms
-**Solution**: Set `workers: 0` for single-threaded data loading
-
-#### **Issue 4: Gradient Accumulation Warning** ✅ FIXED
-**Problem**: `grad_accum_steps (2) doesn't match expected value (4)`
-**Root Cause**: XLA uses 8 processes, so 32 ÷ (1 × 8) = 4 expected
-**Solution**: Set `grad_accum_steps: 4` to match XLA calculation
-
-#### **Issue 5: Prefetch Factor Configuration Error** ✅ FIXED
-**Problem**: `prefetch_factor option could only be specified in multiprocessing`
-**Root Cause**: `prefetch_factor` requires `workers > 0`, but we set `workers: 0`
-**Solution**: Set `prefetch_factor: null` when using single-threaded loading
-
-#### **Issue 6: XLA Multiprocessing Compatibility Error** ✅ FIXED
-**Problem**: `TypeError: 'mappingproxy' object does not support item assignment`
-**Root Cause**: Python 3.11 + XLA 2.7.0 multiprocessing serialization incompatibility
-**Solution**: Set `multiprocessing.set_start_method('forkserver', force=True)` in training script
-
-### **Current Training Configuration** ✅ READY  
-- **Dataset**: 601 OCT volumes from participants 1001-1100 (all available data)
-- **Data loading**: Single-threaded (`workers: 0`) for stability
-- **Batch config**: `global_batch_size: 32`, `per_core_batch_size: 1`, `grad_accum_steps: 4`
-- **Transform pipeline**: Memory-efficient without `Spacingd`
-- **Multiprocessing**: `forkserver` start method for XLA 2.7.0 compatibility
-- **All configs fixed**: single-domain, multi-domain, and smoke test
-
-### **Verification Status**: ✅ ALL 6 ISSUES RESOLVED
-**Latest Test Results (Smoke Test):**
-```
-✅ XLA distributed training: 16 TPU workers launched successfully
-✅ W&B monitoring: Multiple concurrent runs active
-✅ No multiprocessing errors: forkserver start method working
-✅ Data pipeline: 601 files loaded and processed
-✅ Transform pipeline: Memory-efficient processing confirmed
-```
-
-**Ready for Production Training:**
-```bash
-# All critical issues resolved - training fully operational
-bash run_tpu_xla.sh configs/pretrain_vjepa_single_domain.yaml
-```
+2. If <1, set to 1 and increase `grad_accum_steps`  
+3. If still OOM, reduce `image_size` to [64, 320, 320]
 
 ---
 
-*Last updated: After resolving all 6 critical training issues - XLA multiprocessing compatibility fixed, training fully operational*
+*Last updated: After DICOM validation enhancement and warning fixes - Training pipeline fully operational and warning-free*
