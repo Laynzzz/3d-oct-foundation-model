@@ -22,7 +22,7 @@ mask_ratio: 0.6
 # train
 global_batch_size: 32                # Reduced from 128 to handle DICOM failures
 per_core_batch_size: 1              # Reduced from 2 to minimize batch impact
-grad_accum_steps: 2                 # Reduced from 8 to maintain effective batch size
+grad_accum_steps: 4                 # Fixed: 32 ÷ (1 × 8) = 4 for proper gradient accumulation
 epochs: 120
 base_lr: 1.5e-3
 weight_decay: 0.05
