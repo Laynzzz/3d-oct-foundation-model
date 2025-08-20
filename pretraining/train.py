@@ -369,11 +369,19 @@ def train_epoch(
             use_bf16 = getattr(config, 'use_bf16', False) or os.environ.get('XLA_USE_BF16') == '1'
             if use_bf16:
                 with torch.autocast(device_type='xla', dtype=torch.bfloat16):
-                    outputs = model(batch)
-                    loss = outputs['loss']
+                    # VJEPA3D expects (context_view, target_view, mask)
+                    loss, predictions, targets = model(
+                        batch['context_view'], 
+                        batch['target_view'], 
+                        batch['mask']
+                    )
             else:
-                outputs = model(batch)
-                loss = outputs['loss']
+                # VJEPA3D expects (context_view, target_view, mask)
+                loss, predictions, targets = model(
+                    batch['context_view'], 
+                    batch['target_view'], 
+                    batch['mask']
+                )
             
             # Scale loss for gradient accumulation
             loss = loss / config.grad_accum_steps
@@ -473,11 +481,19 @@ def validate_epoch(model: nn.Module, val_loader, epoch: int, config: DictConfig)
                 use_bf16 = getattr(config, 'use_bf16', False) or os.environ.get('XLA_USE_BF16') == '1'
                 if use_bf16:
                     with torch.autocast(device_type='xla', dtype=torch.bfloat16):
-                        outputs = model(batch)
-                        loss = outputs['loss']
+                        # VJEPA3D expects (context_view, target_view, mask)
+                        loss, predictions, targets = model(
+                            batch['context_view'], 
+                            batch['target_view'], 
+                            batch['mask']
+                        )
                 else:
-                    outputs = model(batch)
-                    loss = outputs['loss']
+                    # VJEPA3D expects (context_view, target_view, mask)
+                    loss, predictions, targets = model(
+                        batch['context_view'], 
+                        batch['target_view'], 
+                        batch['mask']
+                    )
                 
                 total_loss += loss.item()
                 num_batches += 1

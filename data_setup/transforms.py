@@ -202,7 +202,15 @@ def create_pretraining_transforms(
         )
     ]
     
-    return Compose(transforms)
+    # Create base transforms composition
+    base_transforms = Compose(transforms)
+    
+    # Wrap with TwoViewTransform for JEPA training (creates context_view, target_view, mask)
+    return TwoViewTransform(
+        base_transforms=base_transforms,
+        patch_size=patch_size,
+        mask_ratio=mask_ratio
+    )
 
 
 def create_validation_transforms(
@@ -287,7 +295,8 @@ class TwoViewTransform:
         target_view = self.mask_generator(target_view)
         
         return {
-            'context_view': context_view,
-            'target_view': target_view,
+            'context_view': context_view['image'],  # Extract tensor from dict
+            'target_view': target_view['image'],    # Extract tensor from dict
+            'mask': target_view['mask'],            # Extract mask from target view
             'meta': sample.get('meta', {})
         }
