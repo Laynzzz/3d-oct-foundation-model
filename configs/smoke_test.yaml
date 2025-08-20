@@ -12,16 +12,16 @@ manifest_path: ${gcs_root}/manifest.tsv
 list_strategy: single_domain    # [single_domain|multi_domain]
 cache_local: true
 cache_dir: /tmp/oct_cache
-max_samples: 16  # Limit to 16 samples for smoke test
+max_samples: 8  # Limit to 8 samples for faster smoke test
 
 # spatial
 target_spacing: [0.05, 0.02, 0.02]  # [dz, dy, dx] mm
-image_size: [32, 192, 192]          # Smaller for smoke test [D, H, W]
+image_size: [16, 128, 128]          # Much smaller to prevent OOM [D, H, W]
 patch_size: [4, 16, 16]
 mask_ratio: 0.6
 
 # train - minimal for smoke test
-global_batch_size: 8  # Changed: 8 ÷ (1 × 8) = 1 grad_accum_steps
+global_batch_size: 4  # Reduced to prevent OOM: 4 ÷ (1 × 4) = 1 grad_accum_steps
 per_core_batch_size: 1
 grad_accum_steps: 1
 epochs: 1
