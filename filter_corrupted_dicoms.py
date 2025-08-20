@@ -94,7 +94,7 @@ def filter_corrupted_files(manifest_df: pd.DataFrame, gcs_root: str, max_workers
     # Build full file paths
     file_paths = []
     for _, row in manifest_df.iterrows():
-        file_path = f"{gcs_root}/{row['relative_path']}"
+        file_path = f"{gcs_root}{row['filepath']}"  # filepath already starts with /
         file_paths.append(file_path)
     
     logger.info(f"Validating {len(file_paths)} DICOM files with {max_workers} workers...")
@@ -128,14 +128,14 @@ def filter_corrupted_files(manifest_df: pd.DataFrame, gcs_root: str, max_workers
                           f"{valid_count} valid, {invalid_count} invalid")
     
     # Create filtered manifest
-    valid_relative_paths = []
+    valid_filepaths = []
     for valid_path in valid_files:
-        # Extract relative path
-        relative_path = valid_path.replace(gcs_root + '/', '')
-        valid_relative_paths.append(relative_path)
+        # Extract filepath (remove gcs_root prefix)
+        filepath = valid_path.replace(gcs_root, '')
+        valid_filepaths.append(filepath)
     
     # Filter the manifest to keep only valid files
-    filtered_df = manifest_df[manifest_df['relative_path'].isin(valid_relative_paths)].copy()
+    filtered_df = manifest_df[manifest_df['filepath'].isin(valid_filepaths)].copy()
     
     # Log results
     logger.info(f"Validation complete:")
