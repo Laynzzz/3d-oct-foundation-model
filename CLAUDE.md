@@ -7,6 +7,13 @@
 
 The complete V-JEPA2 3D OCT foundation model is **fully operational** and successfully running distributed training on 16 TPU cores with W&B monitoring.
 
+### 🚨 **CRITICAL REMINDER: Code Update Workflow**
+```bash
+# Every time you change local files:
+git add . && git commit -m "message" && git push
+gcloud compute tpus tpu-vm ssh oct-jepa2-v4-32 --zone=us-central2-b --project=d-oct-foundational-model --worker=all --command="cd ~/3d-oct-foundation-model && git pull"
+```
+
 ### Current Implementation Status
 
 **All Core Components Complete:**
@@ -131,9 +138,35 @@ gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
     --command="export PATH=/home/layne/miniconda/envs/torch-xla/bin:\$PATH && cd ~/3d-oct-foundation-model && bash run_tpu_xla.sh configs/pretrain_vjepa_multi_domain.yaml"
 ```
 
-### Development Commands
+### Development Workflow
+
+#### 🚨 **CRITICAL WORKFLOW: Code Changes → TPU Deployment**
+
+**EVERY time you make changes to local files, you MUST follow this complete workflow:**
+
 ```bash
-# Pull code updates to all workers (MUST use worker=all)
+# 1. Local: Stage, commit, and push changes
+git add .
+git commit -m "Your commit message"
+git push
+
+# 2. TPU: Pull changes to ALL workers (MANDATORY)
+gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
+    --zone=${ZONE} \
+    --project=${PROJECT_ID} \
+    --worker=all \
+    --command="cd ~/3d-oct-foundation-model && git pull"
+```
+
+**⚠️ Why this is CRITICAL:**
+- TPU workers operate independently and don't auto-sync
+- Code changes only exist locally until git push + TPU git pull
+- Running training with stale code leads to confusing results
+- ALL 4 workers must have the same code version for distributed training
+
+#### Additional Development Commands
+```bash
+# Pull code updates to all workers (after local git push)
 gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
     --zone=${ZONE} \
     --project=${PROJECT_ID} \
