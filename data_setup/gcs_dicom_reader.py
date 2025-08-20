@@ -100,13 +100,23 @@ class GCSDICOMReader:
                 except Exception as e:
                     logger.debug(f"Transfer syntax conversion failed for {gcs_path}: {e}")
                 
-                # Extract pixel data
-                if not hasattr(dataset, 'pixel_array'):
-                    logger.warning(f"No pixel data found in {gcs_path}")
+                # Extract pixel data - check for PixelData tag first
+                if (0x7FE0, 0x0010) not in dataset:
+                    logger.warning(f"No pixel data tag (7FE0,0010) found in {gcs_path}")
                     self.skipped_files += 1
                     return None
                 
-                pixel_array = dataset.pixel_array
+                # Try to access pixel_array, which may fail for corrupted files
+                try:
+                    pixel_array = dataset.pixel_array
+                    if pixel_array is None or pixel_array.size == 0:
+                        logger.warning(f"Pixel data is empty or None in {gcs_path}")
+                        self.skipped_files += 1
+                        return None
+                except Exception as e:
+                    logger.warning(f"Failed to access pixel array in {gcs_path}: {e}")
+                    self.skipped_files += 1
+                    return None
                 
                 # Apply rescale slope/intercept if present
                 pixel_array = self._apply_rescaling(pixel_array, dataset)

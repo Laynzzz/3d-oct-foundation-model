@@ -329,14 +329,14 @@ def collate_fn(batch: List[Optional[Dict[str, Any]]]) -> Dict[str, Any]:
     valid_samples = [sample for sample in batch if sample is not None]
     
     if len(valid_samples) == 0:
-        # This should not happen with proper participant filtering
-        logger.error("No valid samples in batch - this indicates a data filtering issue")
-        logger.error("Batch contents:")
+        # Handle empty batches gracefully instead of crashing
+        logger.warning("No valid samples in batch - returning None to skip this batch")
+        logger.debug("Batch contents:")
         for i, sample in enumerate(batch):
-            logger.error(f"  Sample {i}: {type(sample)} - {sample}")
+            logger.debug(f"  Sample {i}: {type(sample)} - {sample is not None}")
         
-        # Raise error to identify if filtering failed
-        raise RuntimeError("No valid samples in batch - check participant range filtering")
+        # Return None to indicate batch should be skipped
+        return None
     
     # Log batch statistics for debugging
     total_samples = len(batch)
