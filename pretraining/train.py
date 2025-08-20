@@ -433,8 +433,10 @@ def train_epoch(
                 # Additional W&B metrics
                 local_rank = int(os.environ.get('LOCAL_RANK', 0))
                 if local_rank == 0 and wandb.run is not None:
+                    # Get EMA momentum from target encoder
+                    ema_momentum = model.target_encoder.momentum if hasattr(model, 'target_encoder') else 0.0
                     wandb.log({
-                        'train/ema_momentum': outputs.get('ema_momentum', 0.0),
+                        'train/ema_momentum': ema_momentum,
                         'train/grad_norm': torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float('inf')),
                         'train/batch_idx': batch_idx,
                     }, step=global_step)
