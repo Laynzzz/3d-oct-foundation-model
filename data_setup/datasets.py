@@ -228,17 +228,19 @@ class OCTDICOMDataset(Dataset):
 def create_file_lists(
     manifest_path: str,
     gcs_root: str,
-    list_strategy: str = 'single_domain'
+    list_strategy: str = 'single_domain',
+    participant_range: tuple = (1001, 1100)
 ) -> List[str]:
-    """Create file lists based on strategy.
+    """Create file lists based on strategy, filtered by participant range.
     
     Args:
         manifest_path: Path to manifest TSV
         gcs_root: GCS root path
         list_strategy: 'single_domain' or 'multi_domain'
+        participant_range: Tuple (min_id, max_id) to filter available participants
         
     Returns:
-        List of GCS file paths
+        List of GCS file paths for available participants only
     """
     parser = ManifestParser(manifest_path, gcs_root)
     parser.load_manifest()
@@ -252,8 +254,28 @@ def create_file_lists(
     else:
         raise ValueError(f"Unknown list_strategy: {list_strategy}")
     
-    logger.info(f"Created file list with strategy '{list_strategy}': {len(file_list)} files")
-    return file_list
+    # Filter by participant range (1001-1100 available)
+    min_id, max_id = participant_range
+    filtered_list = []
+    
+    for file_path in file_list:
+        # Extract participant ID from path like: .../topcon_triton/1001/...
+        parts = file_path.split('/')
+        participant_id = None
+        
+        for i, part in enumerate(parts):
+            if part in ['topcon_triton', 'heidelberg_spectralis', 'topcon_maestro2', 'zeiss_cirrus']:
+                if i + 1 < len(parts) and parts[i + 1].isdigit():
+                    participant_id = int(parts[i + 1])
+                    break
+        
+        # Only include files from available participant range
+        if participant_id and min_id <= participant_id <= max_id:
+            filtered_list.append(file_path)
+    
+    logger.info(f"Created file list with strategy '{list_strategy}': {len(filtered_list)} files "
+                f"(filtered from {len(file_list)} total, participant range {min_id}-{max_id})")
+    return filtered_list
 
 
 def stratified_split_by_device(
@@ -307,14 +329,14 @@ def collate_fn(batch: List[Optional[Dict[str, Any]]]) -> Dict[str, Any]:
     valid_samples = [sample for sample in batch if sample is not None]
     
     if len(valid_samples) == 0:
-        # Try to get a valid sample from the dataset if available
-        logger.error("No valid samples in batch - this indicates a serious data loading issue")
+        # This should not happen with proper participant filtering
+        logger.error("No valid samples in batch - this indicates a data filtering issue")
         logger.error("Batch contents:")
         for i, sample in enumerate(batch):
             logger.error(f"  Sample {i}: {type(sample)} - {sample}")
         
-        # Try to provide more context about what went wrong
-        raise RuntimeError("No valid samples in batch - check DICOM file integrity and GCS permissions")
+        # Raise error to identify if filtering failed
+        raise RuntimeError("No valid samples in batch - check participant range filtering")
     
     # Log batch statistics for debugging
     total_samples = len(batch)
