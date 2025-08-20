@@ -163,8 +163,13 @@ class OCTDICOMDataset(Dataset):
                 sample = self.transforms(sample)
                 # Convert MONAI objects to XLA-compatible simple objects
                 sample = self._make_xla_compatible(sample)
+                
+                # Debug: log sample format
+                logger.debug(f"Sample format after transforms: {list(sample.keys())}")
             except Exception as e:
                 logger.error(f"Transform failed for {gcs_path}: {e}")
+                import traceback
+                logger.error(f"Transform traceback: {traceback.format_exc()}")
                 return None
         
         return sample
@@ -396,19 +401,37 @@ def collate_fn(batch: List[Optional[Dict[str, Any]]]) -> Dict[str, Any]:
         logger.warning(f"Batch had {total_samples - valid_count}/{total_samples} failed samples")
     
     try:
-        # Stack images
-        images = torch.stack([sample['image'] for sample in valid_samples])
+        # Check if samples have JEPA format (context_view, target_view, mask) or old format (image)
+        sample_keys = set(valid_samples[0].keys()) if valid_samples else set()
         
-        # Collect spacings and metadata
-        spacings = [sample['spacing'] for sample in valid_samples]
-        metas = [sample['meta'] for sample in valid_samples]
-        
-        return {
-            'image': images,
-            'spacing': spacings,
-            'meta': metas,
-            'batch_size': len(valid_samples)
-        }
+        if 'context_view' in sample_keys and 'target_view' in sample_keys and 'mask' in sample_keys:
+            # New JEPA format
+            context_views = torch.stack([sample['context_view'] for sample in valid_samples])
+            target_views = torch.stack([sample['target_view'] for sample in valid_samples])
+            masks = torch.stack([sample['mask'] for sample in valid_samples])
+            metas = [sample.get('meta', {}) for sample in valid_samples]
+            
+            return {
+                'context_view': context_views,
+                'target_view': target_views,
+                'mask': masks,
+                'meta': metas,
+                'batch_size': len(valid_samples)
+            }
+        elif 'image' in sample_keys:
+            # Old format (for validation transforms that don't use TwoViewTransform)
+            images = torch.stack([sample['image'] for sample in valid_samples])
+            spacings = [sample.get('spacing', (1.0, 1.0, 1.0)) for sample in valid_samples]
+            metas = [sample.get('meta', {}) for sample in valid_samples]
+            
+            return {
+                'image': images,
+                'spacing': spacings,
+                'meta': metas,
+                'batch_size': len(valid_samples)
+            }
+        else:
+            raise ValueError(f"Unknown sample format. Expected 'image' or JEPA format, got keys: {sample_keys}")
     except Exception as e:
         logger.error(f"Error in collate_fn: {e}")
         logger.error(f"Valid samples: {valid_count}, Total samples: {total_samples}")

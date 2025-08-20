@@ -294,6 +294,9 @@ class TwoViewTransform:
         target_view = self.base_transforms(target_sample)
         target_view = self.mask_generator(target_view)
         
+        # Debug logging
+        logger.debug(f"TwoViewTransform: context_view keys={list(context_view.keys())}, target_view keys={list(target_view.keys())}")
+        
         return {
             'context_view': context_view['image'],  # Extract tensor from dict
             'target_view': target_view['image'],    # Extract tensor from dict

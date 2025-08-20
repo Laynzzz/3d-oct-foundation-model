@@ -477,23 +477,38 @@ def validate_epoch(model: nn.Module, val_loader, epoch: int, config: DictConfig)
                 continue
             
             try:
-                # Forward pass
+                # Forward pass - handle both JEPA and validation formats
                 use_bf16 = getattr(config, 'use_bf16', False) or os.environ.get('XLA_USE_BF16') == '1'
-                if use_bf16:
-                    with torch.autocast(device_type='xla', dtype=torch.bfloat16):
-                        # VJEPA3D expects (context_view, target_view, mask)
+                
+                if 'context_view' in batch:
+                    # JEPA format (from training transforms)
+                    if use_bf16:
+                        with torch.autocast(device_type='xla', dtype=torch.bfloat16):
+                            loss, predictions, targets = model(
+                                batch['context_view'], 
+                                batch['target_view'], 
+                                batch['mask']
+                            )
+                    else:
                         loss, predictions, targets = model(
                             batch['context_view'], 
                             batch['target_view'], 
                             batch['mask']
                         )
                 else:
-                    # VJEPA3D expects (context_view, target_view, mask)
-                    loss, predictions, targets = model(
-                        batch['context_view'], 
-                        batch['target_view'], 
-                        batch['mask']
-                    )
+                    # Validation format - use same image as both context and target
+                    image = batch['image']
+                    # Create a simple mask (no masking for validation)
+                    B, C, D, H, W = image.shape
+                    patch_d, patch_h, patch_w = 4, 16, 16  # From config
+                    num_patches = (D // patch_d) * (H // patch_h) * (W // patch_w)
+                    mask = torch.zeros(B, num_patches, dtype=torch.bool, device=image.device)
+                    
+                    if use_bf16:
+                        with torch.autocast(device_type='xla', dtype=torch.bfloat16):
+                            loss, predictions, targets = model(image, image, mask)
+                    else:
+                        loss, predictions, targets = model(image, image, mask)
                 
                 total_loss += loss.item()
                 num_batches += 1
