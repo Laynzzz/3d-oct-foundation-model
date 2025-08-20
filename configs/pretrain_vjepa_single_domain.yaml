@@ -36,5 +36,5 @@ log_every_steps: 50
 
 # loader
 workers: 0  # Fixed: multiprocessing causes 'mappingproxy' serialization errors
-prefetch_factor: 2
+prefetch_factor: null  # Must be null when workers=0
 pin_memory: false

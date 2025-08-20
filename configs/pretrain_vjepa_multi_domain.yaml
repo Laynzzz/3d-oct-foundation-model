@@ -22,7 +22,7 @@ mask_ratio: 0.6
 # train
 global_batch_size: 128
 per_core_batch_size: 2
-grad_accum_steps: 8                 # adjust to satisfy global batch
+grad_accum_steps: 8                 # 128 ÷ (2 × 8) = 8 for proper gradient accumulation
 epochs: 150                         # increased for multi-domain
 base_lr: 1.5e-3
 weight_decay: 0.05
@@ -36,5 +36,5 @@ log_every_steps: 50
 
 # loader
 workers: 0  # Fixed: multiprocessing causes 'mappingproxy' serialization errors
-prefetch_factor: 2
+prefetch_factor: null  # Must be null when workers=0
 pin_memory: false
