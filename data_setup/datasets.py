@@ -124,6 +124,9 @@ class OCTDICOMDataset(Dataset):
                     continue
                 else:
                     logger.warning(f"Failed to load DICOM at index {idx} after {max_retries + 1} attempts: {gcs_path}")
+                    # Log participant ID for pattern analysis
+                    participant_id = gcs_path.split('/')[-2] if '/' in gcs_path else 'unknown'
+                    logger.debug(f"Failed participant: {participant_id}")
                     return None
             except Exception as e:
                 if attempt < max_retries:
@@ -158,11 +161,59 @@ class OCTDICOMDataset(Dataset):
         if self.transforms is not None:
             try:
                 sample = self.transforms(sample)
+                # Convert MONAI objects to XLA-compatible simple objects
+                sample = self._make_xla_compatible(sample)
             except Exception as e:
                 logger.error(f"Transform failed for {gcs_path}: {e}")
                 return None
         
         return sample
+    
+    def _make_xla_compatible(self, sample: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert MONAI MetaTensor and other objects to simple tensors/dicts.
+        
+        XLA tensor transfer fails on immutable objects like MetaTensor.
+        This converts everything back to simple Python objects.
+        
+        Args:
+            sample: Sample from transforms (may contain MetaTensor, etc.)
+            
+        Returns:
+            XLA-compatible sample with simple tensors and dicts
+        """
+        def convert_item(item):
+            """Recursively convert complex objects to simple ones."""
+            if hasattr(item, 'array') and hasattr(item, 'meta'):
+                # This is likely a MetaTensor - extract the underlying tensor
+                return torch.as_tensor(item.array) if hasattr(item, 'array') else torch.as_tensor(item)
+            elif isinstance(item, torch.Tensor):
+                # Regular tensor - ensure it's a simple tensor
+                return item.detach().clone()
+            elif isinstance(item, dict):
+                # Recursively process dictionary
+                return {k: convert_item(v) for k, v in item.items()}
+            elif isinstance(item, (list, tuple)):
+                # Recursively process sequences
+                converted = [convert_item(x) for x in item]
+                return converted if isinstance(item, list) else tuple(converted)
+            elif isinstance(item, np.ndarray):
+                # Convert numpy arrays to tensors
+                return torch.from_numpy(item.copy())
+            else:
+                # For other objects, try to keep them simple
+                try:
+                    # If it's a simple type (int, float, str), keep as-is
+                    if isinstance(item, (int, float, str, bool, type(None))):
+                        return item
+                    else:
+                        # For complex objects, convert to string representation
+                        # This prevents XLA from trying to mutate immutable objects
+                        return str(item)
+                except Exception:
+                    return str(item)
+        
+        # Convert the entire sample
+        return convert_item(sample)
     
     def get_next_valid_sample(self, start_idx: int, max_lookahead: int = 10) -> Optional[Dict[str, Any]]:
         """Get the next valid sample starting from start_idx.
