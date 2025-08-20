@@ -71,7 +71,7 @@ class GCSDICOMReader:
         """
         for attempt in range(max_retries + 1):
             try:
-            file_opener = self._get_file_opener(gcs_path)
+                file_opener = self._get_file_opener(gcs_path)
             
             with file_opener() as f:
                 # Read DICOM with deferred loading for large files
@@ -126,31 +126,31 @@ class GCSDICOMReader:
                 'metadata': metadata,
                 'filepath': gcs_path
             }
-            
-            except (InvalidDicomError, FileNotFoundError, PermissionError) as e:
-                if attempt < max_retries:
-                    logger.warning(f"Attempt {attempt + 1} failed for {gcs_path}: {type(e).__name__}: {e}")
-                    continue
-                else:
-                    logger.warning(f"Failed to read DICOM {gcs_path} after {max_retries + 1} attempts: {type(e).__name__}: {e}")
-                    self.skipped_files += 1
-                    return None
-            except Exception as e:
-                if attempt < max_retries:
-                    logger.warning(f"Attempt {attempt + 1} failed for {gcs_path}: {type(e).__name__}: {e}")
-                    continue
-                else:
-                    logger.error(f"Unexpected error reading {gcs_path} after {max_retries + 1} attempts: {type(e).__name__}: {e}")
-                    # Log more details for debugging
-                    import traceback
-                    logger.debug(f"Full traceback: {traceback.format_exc()}")
-                    self.skipped_files += 1
-                    return None
-                    
-        # If we get here, all retries failed
-        logger.error(f"All {max_retries + 1} attempts failed for {gcs_path}")
-        self.skipped_files += 1
-        return None
+                
+        except (InvalidDicomError, FileNotFoundError, PermissionError) as e:
+            if attempt < max_retries:
+                logger.warning(f"Attempt {attempt + 1} failed for {gcs_path}: {type(e).__name__}: {e}")
+                continue
+            else:
+                logger.warning(f"Failed to read DICOM {gcs_path} after {max_retries + 1} attempts: {type(e).__name__}: {e}")
+                self.skipped_files += 1
+                return None
+        except Exception as e:
+            if attempt < max_retries:
+                logger.warning(f"Attempt {attempt + 1} failed for {gcs_path}: {type(e).__name__}: {e}")
+                continue
+            else:
+                logger.error(f"Unexpected error reading {gcs_path} after {max_retries + 1} attempts: {type(e).__name__}: {e}")
+                # Log more details for debugging
+                import traceback
+                logger.debug(f"Full traceback: {traceback.format_exc()}")
+                self.skipped_files += 1
+                return None
+                
+    # If we get here, all retries failed
+    logger.error(f"All {max_retries + 1} attempts failed for {gcs_path}")
+    self.skipped_files += 1
+    return None
     
     def _apply_rescaling(self, pixel_array: np.ndarray, dataset: pydicom.Dataset) -> np.ndarray:
         """Apply DICOM rescale slope and intercept.
