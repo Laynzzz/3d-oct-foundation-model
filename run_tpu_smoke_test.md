@@ -33,12 +33,16 @@ gsutil ls gs://layne-tpu-code-sync/OCTdata/OCTdata/manifest.tsv
 gsutil ls gs://layne-tpu-code-sync/OCTdata/OCTdata/retinal_oct/structural_oct/topcon_triton/ | head -5
 ```
 
-### 4. Set Environment Variables
+### 4. Set Environment Variables (PyTorch 2.7 Compatible)
 ```bash
 export XLA_USE_BF16=1
 export TF_CPP_MIN_LOG_LEVEL=1
 export DATA_CACHE_DIR=/tmp/oct_cache
 export WANDB_MODE=online
+
+# PyTorch 2.7 specific optimizations
+export XLA_FLAGS="--xla_gpu_enable_triton_softmax_fusion=true"
+export PJRT_DEVICE=TPU
 ```
 
 ### 5. Navigate to Project Directory
@@ -50,16 +54,25 @@ cd /path/to/your/project  # Update this path
 
 ## Run Smoke Test
 
-### Step 1: Quick Validation
+### Step 1: PyTorch 2.7 Compatibility Check
+Test PyTorch 2.7.1 / XLA 2.7.0 compatibility:
+```bash
+python tpu_pytorch27_test.py
+```
+
+### Step 1b: Quick Validation (if compatibility test passes)
 Test imports and basic functionality:
 ```bash
 python -c "
 import torch_xla.core.xla_model as xm
+import torch_xla.runtime as xr
 from models.vjepa_3d import VJEPA3D
 from data_setup.datasets import OCTDICOMDataset
 print('✅ All imports successful')
+print(f'PyTorch: {torch.__version__}')
+print(f'XLA: {torch_xla.__version__}')
 print(f'TPU device: {xm.xla_device()}')
-print(f'TPU cores: {xm.xrt.device_count()}')
+print(f'TPU cores: {xr.device_count()}')
 "
 ```
 

@@ -22,11 +22,12 @@ def test_tpu_basic():
         import torch
         import torch_xla
         import torch_xla.core.xla_model as xm
+        import torch_xla.runtime as xr
         
         print(f"✅ PyTorch version: {torch.__version__}")
-        print(f"✅ XLA available: {torch_xla._XLAC._xla_runtime_is_initialized()}")
+        print(f"✅ XLA available: {torch_xla._XLAC.is_runtime_initialized()}")
         
-        device_count = xm.xrt.device_count()
+        device_count = xr.device_count()
         print(f"✅ TPU device count: {device_count}")
         
         if device_count == 0:

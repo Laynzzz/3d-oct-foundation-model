@@ -27,7 +27,7 @@ import torch_xla.core.xla_model as xm
 import torch_xla.distributed.parallel_loader as pl
 import torch_xla.distributed.xla_multiprocessing as xmp
 import torch_xla.utils.utils as xu
-import torch_xla.test.test_utils as test_utils
+import torch_xla.runtime as xr
 
 import numpy as np
 import wandb
@@ -40,7 +40,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from utils.config_parser import load_config, validate_config
 from utils.logging_setup import setup_logging, setup_wandb, log_system_info, log_model_info, log_training_metrics, MetricsTracker
 from data_setup.datasets import OCTDICOMDataset, create_file_lists, collate_fn
-from data_setup.transforms import get_train_transforms, get_validation_transforms
+from data_setup.transforms import create_pretraining_transforms, create_validation_transforms
 from models.vjepa_3d import VJEPA3D
 
 
@@ -223,7 +223,7 @@ def create_data_loaders(config: DictConfig) -> Tuple[DataLoader, DataLoader]:
     train_files, val_files = create_file_lists(
         manifest_path=config.manifest_path,
         gcs_root=config.gcs_root,
-        strategy=config.list_strategy,
+        list_strategy=config.list_strategy,
         val_ratio=0.1,
         seed=config.seed
     )
@@ -231,16 +231,15 @@ def create_data_loaders(config: DictConfig) -> Tuple[DataLoader, DataLoader]:
     logger.info(f"Created file lists: {len(train_files)} training, {len(val_files)} validation")
     
     # Create transforms
-    train_transforms = get_train_transforms(
+    train_transforms = create_pretraining_transforms(
         target_spacing=config.target_spacing,
         image_size=config.image_size,
         mask_ratio=config.mask_ratio
     )
     
-    val_transforms = get_validation_transforms(
+    val_transforms = create_validation_transforms(
         target_spacing=config.target_spacing,
-        image_size=config.image_size,
-        mask_ratio=config.mask_ratio
+        image_size=config.image_size
     )
     
     # Create datasets
@@ -269,7 +268,7 @@ def create_data_loaders(config: DictConfig) -> Tuple[DataLoader, DataLoader]:
     # Create distributed samplers
     train_sampler = DistributedSampler(
         train_dataset,
-        num_replicas=xm.xrt_world_size(),
+        num_replicas=xr.world_size(),
         rank=xm.get_ordinal(),
         shuffle=True,
         drop_last=True
@@ -277,7 +276,7 @@ def create_data_loaders(config: DictConfig) -> Tuple[DataLoader, DataLoader]:
     
     val_sampler = DistributedSampler(
         val_dataset,
-        num_replicas=xm.xrt_world_size(),
+        num_replicas=xr.world_size(),
         rank=xm.get_ordinal(),
         shuffle=False,
         drop_last=False
