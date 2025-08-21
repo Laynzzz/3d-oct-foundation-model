@@ -397,6 +397,9 @@ def train_epoch(
             
             # Gradient accumulation
             if (batch_idx + 1) % config.grad_accum_steps == 0:
+                # Calculate grad norm before clipping/stepping
+                current_grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float('inf'))
+                
                 # Gradient clipping
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 
@@ -407,6 +410,8 @@ def train_epoch(
                 # Update learning rate
                 if scheduler is not None:
                     scheduler.step()
+            else:
+                current_grad_norm = 0.0  # Not a gradient update step
             
             # Calculate metrics
             step_time = time.time() - step_start_time
@@ -440,7 +445,7 @@ def train_epoch(
                     ema_momentum = model.target_encoder.momentum if hasattr(model, 'target_encoder') else 0.0
                     wandb.log({
                         'train/ema_momentum': ema_momentum,
-                        'train/grad_norm': torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float('inf')),
+                        'train/grad_norm': current_grad_norm,
                         'train/batch_idx': batch_idx,
                     }, step=global_step)
         
