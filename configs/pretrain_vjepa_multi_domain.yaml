@@ -20,9 +20,9 @@ patch_size: [4, 16, 16]
 mask_ratio: 0.6
 
 # train
-global_batch_size: 64
+global_batch_size: 32
 per_core_batch_size: 1
-grad_accum_steps: 4                 # 64 ÷ (1 × 16) = 4 for proper gradient accumulation
+grad_accum_steps: 2                 # 32 ÷ (1 × 16) = 2 for proper gradient accumulation
 epochs: 150                         # increased for multi-domain
 base_lr: 1.5e-3
 weight_decay: 0.05
@@ -38,3 +38,5 @@ log_every_steps: 2
 workers: 0  # Fixed: multiprocessing causes 'mappingproxy' serialization errors
 prefetch_factor: null  # Must be null when workers=0
 pin_memory: false
+drop_last: true  # Drop incomplete batches to maintain consistency
+persistent_workers: false  # Disable for stability with corrupted data
