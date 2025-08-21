@@ -408,8 +408,14 @@ def train_epoch(
                 optimizer.zero_grad()
                 
                 # Update learning rate - Set constant LR manually since scheduler disabled
+                target_lr = config.base_lr if hasattr(config, 'base_lr') else 1e-4
                 for param_group in optimizer.param_groups:
-                    param_group['lr'] = config.base_lr  # Force LR = 1e-4
+                    param_group['lr'] = target_lr  # Force LR = 1e-4
+                
+                # Debug: Print LR to verify it's being set (remove after verification)
+                if batch_idx % 50 == 0:  # Every 50 steps
+                    current_lr = optimizer.param_groups[0]['lr']
+                    logger.info(f"Debug: Setting LR to {target_lr}, optimizer LR is {current_lr}")
             else:
                 current_grad_norm = 0.0  # Not a gradient update step
             
@@ -427,7 +433,8 @@ def train_epoch(
             global_step = epoch * len(train_loader) + batch_idx
             
             if (batch_idx + 1) % config.log_every_steps == 0:
-                current_lr = scheduler.get_last_lr()[0] if scheduler else config.base_lr
+                # Get actual LR from optimizer (not scheduler since disabled)
+                current_lr = optimizer.param_groups[0]['lr']
                 
                 log_training_metrics(
                     step=global_step,
