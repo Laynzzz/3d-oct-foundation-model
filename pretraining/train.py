@@ -400,8 +400,8 @@ def train_epoch(
                 # Calculate grad norm before clipping/stepping
                 current_grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float('inf'))
                 
-                # Gradient clipping
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                # Stricter gradient clipping to prevent explosion at low loss
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.1)
                 
                 # XLA optimizer step
                 xm.optimizer_step(optimizer)
