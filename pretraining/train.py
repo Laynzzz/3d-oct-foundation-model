@@ -15,6 +15,7 @@ import sys
 import time
 import math
 import random
+import contextlib
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 import logging
@@ -50,6 +51,35 @@ def set_seed(seed: int):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+# Global instrumentation helpers for TPU debugging
+def global_grad_norm_sq(params_iter):
+    """Calculate global gradient norm squared across all TPU cores."""
+    sq = torch.tensor(0.0, device=xm.xla_device())
+    for p in params_iter:
+        if p.grad is not None:
+            g = p.grad.detach()
+            sq = sq + (g * g).sum()
+    # cross-replica sum across all TPU cores
+    sq = xm.all_reduce(xm.REDUCE_SUM, sq)
+    return sq
+
+
+def grads_all_finite(params_iter):
+    """Check if all gradients are finite across all TPU cores."""
+    ok = torch.tensor(1, device=xm.xla_device())
+    for p in params_iter:
+        if p.grad is not None and not torch.isfinite(p.grad).all():
+            ok = torch.tensor(0, device=xm.xla_device())
+            break
+    ok = xm.all_reduce(xm.REDUCE_MIN, ok)
+    return bool(ok.item())
+
+
+def is_update_step(step_idx, grad_accum_steps):
+    """Check if this is a gradient update step."""
+    return (step_idx + 1) % grad_accum_steps == 0
 
 
 def get_cosine_lr_scheduler(optimizer, warmup_epochs: int, total_epochs: int, min_lr_ratio: float = 0.01):
@@ -386,8 +416,30 @@ def train_epoch(
                     batch['mask']
                 )
             
+            # Calculate global step for logging
+            global_step = epoch * len(train_loader) + batch_idx
+            
+            # Add batch provenance logging around suspicious range
+            if xm.is_master_ordinal() and (512 <= global_step <= 520):
+                try:
+                    paths = batch.get("path", None)
+                    if paths is not None:
+                        logger.info(f"[DEBUG paths @ step {global_step}] {paths}")
+                        wandb.log({f"debug/paths_step_{global_step}": 1})
+                except Exception as e:
+                    logger.warning(f"Path logging failed: {e}")
+            
             # Scale loss for gradient accumulation
             loss = loss / config.grad_accum_steps
+            
+            # 1) Immediate NaN/inf loss guard
+            if not torch.isfinite(loss):
+                # Dump minimal diagnostics
+                if xm.is_master_ordinal():
+                    wandb.log({"train/loss_isfinite": 0, "train/step": global_step})
+                    logger.error(f"[NaN loss] step={global_step} batch_idx={batch_idx}")
+                optimizer.zero_grad()
+                continue
             
             # Backward pass
             loss.backward()
@@ -395,29 +447,48 @@ def train_epoch(
             total_loss += loss.item() * config.grad_accum_steps
             num_batches += 1
             
-            # Gradient accumulation
-            if (batch_idx + 1) % config.grad_accum_steps == 0:
-                # Calculate grad norm before clipping/stepping
-                current_grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float('inf'))
+            # 2) On update step only:
+            if is_update_step(batch_idx, config.grad_accum_steps):
+                # True global grad-norm BEFORE clipping
+                gn2 = global_grad_norm_sq(iter(model.parameters()))
+                pre_clip_gn = gn2.sqrt().item()
                 
-                # Ultra-strict gradient clipping for multi-domain stability
+                # If non-finite grads, skip this update
+                if not grads_all_finite(iter(model.parameters())):
+                    if xm.is_master_ordinal():
+                        wandb.log({"train/grad_nonfinite": 1, "train/step": global_step})
+                        logger.error(f"[Nonfinite grads] step={global_step} -> skipping update")
+                    optimizer.zero_grad()
+                    continue
+                
+                # Clip then step
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.01)
                 
-                # XLA optimizer step
                 xm.optimizer_step(optimizer)
                 optimizer.zero_grad()
                 
-                # Update learning rate - Set constant LR manually since scheduler disabled
-                target_lr = config.base_lr if hasattr(config, 'base_lr') else 1e-4
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] = target_lr  # Force LR = 1e-4
+                # Force a constant LR (until scheduler is reintroduced)
+                for pg in optimizer.param_groups:
+                    pg["lr"] = float(config.base_lr)
                 
-                # Debug: Print LR to verify it's being set (remove after verification)
-                if batch_idx % 50 == 0:  # Every 50 steps
-                    current_lr = optimizer.param_groups[0]['lr']
-                    logger.info(f"Debug: Setting LR to {target_lr}, optimizer LR is {current_lr}")
+                # Assert LR > 0 on first few updates for debugging
+                if xm.is_master_ordinal() and global_step < 5:
+                    current_lr = optimizer.param_groups[0]["lr"]
+                    logger.info(f"[LR check] step {global_step}, LR = {current_lr}")
+                    assert current_lr > 0, f"LR is zero at step {global_step}!"
+                
+                # Log from master only
+                if xm.is_master_ordinal():
+                    wandb.log({
+                        "train/grad_norm": pre_clip_gn,
+                        "train/lr": optimizer.param_groups[0]["lr"],
+                        "train/loss": loss.item() * config.grad_accum_steps,
+                        "train/step": global_step
+                    })
             else:
-                current_grad_norm = 0.0  # Not a gradient update step
+                # optional: log micro-step to see accumulation cadence
+                if xm.is_master_ordinal():
+                    wandb.log({"train/microstep": 1, "train/step": global_step})
             
             # Calculate metrics
             step_time = time.time() - step_start_time
@@ -429,32 +500,7 @@ def train_epoch(
                 throughput=throughput
             )
             
-            # Logging
-            global_step = epoch * len(train_loader) + batch_idx
-            
-            if (batch_idx + 1) % config.log_every_steps == 0:
-                # Get actual LR from optimizer (not scheduler since disabled)
-                current_lr = optimizer.param_groups[0]['lr']
-                
-                log_training_metrics(
-                    step=global_step,
-                    epoch=epoch,
-                    loss=loss.item() * config.grad_accum_steps,
-                    lr=current_lr,
-                    throughput=throughput,
-                    logger=logger
-                )
-                
-                # Additional W&B metrics
-                local_rank = int(os.environ.get('LOCAL_RANK', 0))
-                if local_rank == 0 and wandb.run is not None:
-                    # Get EMA momentum from target encoder
-                    ema_momentum = model.target_encoder.momentum if hasattr(model, 'target_encoder') else 0.0
-                    wandb.log({
-                        'train/ema_momentum': ema_momentum,
-                        'train/grad_norm': current_grad_norm,
-                        'train/batch_idx': batch_idx,
-                    }, step=global_step)
+            # Old logging system disabled - now using instrumented logging above
         
         except RuntimeError as e:
             if "out of memory" in str(e).lower() or "resource exhausted" in str(e).lower():
@@ -585,13 +631,14 @@ def main_worker(config: DictConfig):
     # Log model info (master only)
     log_model_info(model, logger)
     
-    # Create optimizer and scheduler
-    optimizer = create_optimizer(model, config)
-    scheduler = get_cosine_lr_scheduler(
-        optimizer, 
-        warmup_epochs=config.get('warmup_epochs', 10),
-        total_epochs=config.epochs
+    # Create optimizer with explicit LR (scheduler disabled for stability)
+    optimizer = torch.optim.AdamW(
+        model.parameters(), 
+        lr=float(config.base_lr), 
+        weight_decay=0.05, 
+        betas=(0.9, 0.95)
     )
+    scheduler = None  # intentionally disabled during stabilization
     
     # Load checkpoint if resuming
     start_epoch = 0
