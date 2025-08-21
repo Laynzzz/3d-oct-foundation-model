@@ -24,7 +24,7 @@ global_batch_size: 32
 per_core_batch_size: 1
 grad_accum_steps: 2                 # 32 ÷ (1 × 16) = 2 for proper gradient accumulation
 epochs: 150                         # increased for multi-domain
-base_lr: 5e-4  # Reduced from 1.5e-3 to prevent gradient explosion at low loss
+base_lr: 1e-4  # Further reduced: 5e-4 still too high for multi-domain stability
 weight_decay: 0.05
 warmup_epochs: 10
 ema_base: 0.996

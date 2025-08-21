@@ -400,16 +400,16 @@ def train_epoch(
                 # Calculate grad norm before clipping/stepping
                 current_grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float('inf'))
                 
-                # Stricter gradient clipping to prevent explosion at low loss
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.1)
+                # Ultra-strict gradient clipping for multi-domain stability
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.01)
                 
                 # XLA optimizer step
                 xm.optimizer_step(optimizer)
                 optimizer.zero_grad()
                 
-                # Update learning rate
-                if scheduler is not None:
-                    scheduler.step()
+                # Update learning rate - DISABLED due to scheduler bug causing restarts
+                # if scheduler is not None:
+                #     scheduler.step()
             else:
                 current_grad_norm = 0.0  # Not a gradient update step
             
