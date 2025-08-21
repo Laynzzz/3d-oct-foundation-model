@@ -114,9 +114,40 @@ class GCSDICOMReader:
                         self.skipped_files += 1
                         return None
                 except Exception as e:
-                    logger.warning(f"Failed to access pixel array in {gcs_path}: {e}")
-                    self.skipped_files += 1
-                    return None
+                    logger.debug(f"Standard pixel access failed for {gcs_path}: {e}")
+                    # Try enhanced validation as fallback
+                    try:
+                        if hasattr(dataset, 'PixelData'):
+                            # Manual pixel data extraction
+                            pixel_data = dataset.PixelData
+                            rows = getattr(dataset, 'Rows', 512)
+                            cols = getattr(dataset, 'Columns', 512) 
+                            frames = getattr(dataset, 'NumberOfFrames', 1)
+                            
+                            # Determine dtype from bits allocated
+                            bits_allocated = getattr(dataset, 'BitsAllocated', 16)
+                            if bits_allocated <= 8:
+                                dtype = np.uint8
+                            elif bits_allocated <= 16:
+                                dtype = np.uint16
+                            else:
+                                dtype = np.uint32
+                            
+                            # Convert raw pixel data
+                            expected_size = frames * rows * cols
+                            pixel_array = np.frombuffer(pixel_data, dtype=dtype)
+                            
+                            if len(pixel_array) >= expected_size:
+                                pixel_array = pixel_array[:expected_size].reshape(frames, rows, cols)
+                                logger.debug(f"Enhanced pixel extraction successful for {gcs_path}")
+                            else:
+                                raise ValueError(f"Insufficient pixel data: {len(pixel_array)} < {expected_size}")
+                        else:
+                            raise ValueError("No PixelData attribute found")
+                    except Exception as fallback_e:
+                        logger.warning(f"Enhanced pixel extraction also failed for {gcs_path}: {fallback_e}")
+                        self.skipped_files += 1
+                        return None
                 
                 # Apply rescale slope/intercept if present
                 pixel_array = self._apply_rescaling(pixel_array, dataset)
