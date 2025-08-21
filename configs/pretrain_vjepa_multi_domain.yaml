@@ -32,7 +32,7 @@ ema_base: 0.996
 # logging/ckpt
 ckpt_dir: gs://layne-tpu-code-sync/checkpoints/vjepa2/${experiment_name}
 ckpt_every_epochs: 5
-log_every_steps: 50
+log_every_steps: 2
 
 # loader
 workers: 0  # Fixed: multiprocessing causes 'mappingproxy' serialization errors
