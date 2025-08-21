@@ -407,9 +407,9 @@ def train_epoch(
                 xm.optimizer_step(optimizer)
                 optimizer.zero_grad()
                 
-                # Update learning rate - DISABLED due to scheduler bug causing restarts
-                # if scheduler is not None:
-                #     scheduler.step()
+                # Update learning rate - Set constant LR manually since scheduler disabled
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = config.base_lr  # Force LR = 1e-4
             else:
                 current_grad_norm = 0.0  # Not a gradient update step
             
