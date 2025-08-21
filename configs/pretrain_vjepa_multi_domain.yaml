@@ -20,9 +20,9 @@ patch_size: [4, 16, 16]
 mask_ratio: 0.6
 
 # train
-global_batch_size: 128
-per_core_batch_size: 2
-grad_accum_steps: 8                 # 128 ÷ (2 × 8) = 8 for proper gradient accumulation
+global_batch_size: 64
+per_core_batch_size: 1
+grad_accum_steps: 4                 # 64 ÷ (1 × 16) = 4 for proper gradient accumulation
 epochs: 150                         # increased for multi-domain
 base_lr: 1.5e-3
 weight_decay: 0.05
