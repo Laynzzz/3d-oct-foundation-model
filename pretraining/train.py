@@ -395,29 +395,42 @@ def train_epoch(
             total_loss += loss.item() * config.grad_accum_steps
             num_batches += 1
             
-            # Gradient accumulation
+            # Calculate global step for logging
+            global_step = epoch * len(train_loader) + batch_idx
+            
+            # A-prime: XLA-optimized gradient handling (no loops, no all_reduce)
+            pre_clip_gn = 0.0  # Initialize for non-update steps
             if (batch_idx + 1) % config.grad_accum_steps == 0:
-                # Calculate grad norm before clipping/stepping
-                current_grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float('inf'))
-                
-                # Ultra-strict gradient clipping for multi-domain stability
+                # 1) get pre-clip norm in a single fused op (XLA-friendly)
+                pre_clip_gn = float(torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float('inf')))
+
+                # 2) guard: skip if non-finite (cheap check, no cross-replica)
+                if not math.isfinite(pre_clip_gn):
+                    optimizer.zero_grad()
+                    continue
+
+                # 3) actual clip
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.01)
-                
-                # XLA optimizer step
+
+                # 4) step + zero
                 xm.optimizer_step(optimizer)
                 optimizer.zero_grad()
-                
-                # Update learning rate - Set constant LR manually since scheduler disabled
-                target_lr = config.base_lr if hasattr(config, 'base_lr') else 1e-4
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] = target_lr  # Force LR = 1e-4
-                
-                # Debug: Print LR to verify it's being set (remove after verification)
-                if batch_idx % 50 == 0:  # Every 50 steps
-                    current_lr = optimizer.param_groups[0]['lr']
-                    logger.info(f"Debug: Setting LR to {target_lr}, optimizer LR is {current_lr}")
-            else:
-                current_grad_norm = 0.0  # Not a gradient update step
+
+                # 5) log from master only
+                if xm.is_master_ordinal():
+                    wandb.log({
+                        "train/grad_norm": pre_clip_gn,
+                        "train/lr": optimizer.param_groups[0]["lr"],  # should be 1e-4
+                        "train/loss": float(loss.item() * config.grad_accum_steps),
+                        "train/step": global_step
+                    })
+                    
+                # Heartbeat for first few steps
+                if xm.is_master_ordinal() and global_step < 3:
+                    logger.info(f"[heartbeat] completed optimizer_step at update step {global_step}")
+            
+            # Store grad norm for old logging system compatibility
+            current_grad_norm = pre_clip_gn if (batch_idx + 1) % config.grad_accum_steps == 0 else 0.0
             
             # Calculate metrics
             step_time = time.time() - step_start_time
@@ -429,32 +442,7 @@ def train_epoch(
                 throughput=throughput
             )
             
-            # Logging
-            global_step = epoch * len(train_loader) + batch_idx
-            
-            if (batch_idx + 1) % config.log_every_steps == 0:
-                # Get actual LR from optimizer (not scheduler since disabled)
-                current_lr = optimizer.param_groups[0]['lr']
-                
-                log_training_metrics(
-                    step=global_step,
-                    epoch=epoch,
-                    loss=loss.item() * config.grad_accum_steps,
-                    lr=current_lr,
-                    throughput=throughput,
-                    logger=logger
-                )
-                
-                # Additional W&B metrics
-                local_rank = int(os.environ.get('LOCAL_RANK', 0))
-                if local_rank == 0 and wandb.run is not None:
-                    # Get EMA momentum from target encoder
-                    ema_momentum = model.target_encoder.momentum if hasattr(model, 'target_encoder') else 0.0
-                    wandb.log({
-                        'train/ema_momentum': ema_momentum,
-                        'train/grad_norm': current_grad_norm,
-                        'train/batch_idx': batch_idx,
-                    }, step=global_step)
+            # A-prime: Old logging system disabled (now using master-only W&B above)
         
         except RuntimeError as e:
             if "out of memory" in str(e).lower() or "resource exhausted" in str(e).lower():
@@ -570,7 +558,12 @@ def main_worker(config: DictConfig):
     log_system_info(logger)
     
     # Setup W&B (master only)
-    setup_wandb(config)
+    # A-prime: Initialize W&B only on master
+    if xm.is_master_ordinal():
+        setup_wandb(config)
+    else:
+        import wandb
+        wandb = None  # sentinel; never call on non-master
     
     # Create model
     model = VJEPA3D(
@@ -585,13 +578,14 @@ def main_worker(config: DictConfig):
     # Log model info (master only)
     log_model_info(model, logger)
     
-    # Create optimizer and scheduler
-    optimizer = create_optimizer(model, config)
-    scheduler = get_cosine_lr_scheduler(
-        optimizer, 
-        warmup_epochs=config.get('warmup_epochs', 10),
-        total_epochs=config.epochs
+    # Create optimizer with constant LR (A-prime: no scheduler)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=float(config.base_lr),        # e.g., 1e-4
+        weight_decay=0.05,
+        betas=(0.9, 0.95),
     )
+    scheduler = None  # keep disabled for Run A-prime
     
     # Load checkpoint if resuming
     start_epoch = 0
