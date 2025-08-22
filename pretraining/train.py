@@ -424,10 +424,10 @@ def train_epoch(
                 if xm.is_master_ordinal():
                     wandb.log({
                         "train/grad_norm": pre_clip_gn,
-                        "train/lr": optimizer.param_groups[0]["lr"],  # should be 1e-4
+                        "train/lr": optimizer.param_groups[0]["lr"],
                         "train/loss": float(loss.item() * config.grad_accum_steps),
-                        "train/step": global_step
-                    })
+                        "train/epoch": epoch
+                    }, step=global_step)
                     
                 # Heartbeat for first few steps
                 if xm.is_master_ordinal() and global_step < 3:
@@ -534,10 +534,12 @@ def validate_epoch(model: nn.Module, val_loader, epoch: int, config: DictConfig)
         logger.info(f"Validation epoch {epoch}: avg_loss = {avg_loss:.6f}")
         
         if wandb.run is not None:
+            # Use current global step for validation logging
+            val_global_step = epoch * len(val_loader)  # Approximate
             wandb.log({
                 'val/loss': avg_loss,
                 'val/epoch': epoch
-            })
+            }, step=val_global_step)
     
     return avg_loss
 
