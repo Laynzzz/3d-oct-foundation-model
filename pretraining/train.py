@@ -416,6 +416,10 @@ def train_epoch(
                 xm.optimizer_step(optimizer)
                 optimizer.zero_grad()
 
+                # Step scheduler on UPDATE steps only (from fix.md)
+                if scheduler is not None:
+                    scheduler.step()
+
                 # 5) log from master only
                 if xm.is_master_ordinal():
                     wandb.log({
@@ -578,14 +582,45 @@ def main_worker(config: DictConfig):
     # Log model info (master only)
     log_model_info(model, logger)
     
-    # Create optimizer with constant LR (A-prime: no scheduler)
+    # Create optimizer
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=float(config.base_lr),        # e.g., 1e-4
+        lr=float(config.base_lr),
         weight_decay=0.05,
         betas=(0.9, 0.95),
     )
-    scheduler = None  # keep disabled for Run A-prime
+    
+    # Create data loaders first to get dataset length
+    train_loader, val_loader = create_data_loaders(config)
+    
+    # Step 3: Monotonic step-based cosine scheduler (from fix.md)
+    if config.get('use_scheduler', False):
+        # Build once after you know dataset length:
+        world = xr.world_size()  # PyTorch 2.7 compatible
+        eff_batch = config.per_core_batch_size * world * config.grad_accum_steps
+        steps_per_epoch = max(1, (len(train_loader.dataset) // eff_batch))
+        num_train_steps = max(1, steps_per_epoch * config.epochs)
+
+        warmup = max(1, int(0.03 * num_train_steps))
+        base_lr = float(config.base_lr)       # e.g., 1e-4
+        min_lr  = base_lr * 0.1
+
+        def lr_lambda(step):
+            if step < warmup:
+                return step / warmup
+            t = (step - warmup) / max(1, num_train_steps - warmup)
+            return (min_lr/base_lr) + 0.5*(1 - (min_lr/base_lr))*(1 + math.cos(math.pi*t))
+
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+        
+        # Log scheduler info (master only)
+        if xm.is_master_ordinal():
+            logger.info(f"Scheduler enabled: {num_train_steps} steps, {warmup} warmup, {base_lr} -> {min_lr}")
+            # Log first few scheduled LRs for verification
+            sim = [base_lr * lr_lambda(s) for s in range(min(20, num_train_steps))]
+            logger.info(f"First 20 scheduled LRs: {sim}")
+    else:
+        scheduler = None  # Keep disabled for stability
     
     # Load checkpoint if resuming
     start_epoch = 0
@@ -597,8 +632,7 @@ def main_worker(config: DictConfig):
         )
         start_epoch += 1  # Start from next epoch
     
-    # Create data loaders
-    train_loader, val_loader = create_data_loaders(config)
+    # Data loaders already created above for scheduler calculation
     
     # Metrics tracker
     metrics_tracker = MetricsTracker()

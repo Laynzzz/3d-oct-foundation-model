@@ -28,6 +28,7 @@ base_lr: 1e-4  # Further reduced: 5e-4 still too high for multi-domain stability
 weight_decay: 0.05
 warmup_epochs: 10
 ema_base: 0.996
+use_scheduler: true  # Step 3: Enable monotonic cosine scheduler
 
 # logging/ckpt
 ckpt_dir: gs://layne-tpu-code-sync/checkpoints/vjepa2/${experiment_name}
@@ -40,3 +41,6 @@ prefetch_factor: null  # Must be null when workers=0
 pin_memory: false
 drop_last: true  # Drop incomplete batches to maintain consistency
 persistent_workers: false  # Disable for stability with corrupted data
+
+# mixed precision
+use_bf16: true  # Modern BF16 configuration (replaces deprecated XLA_USE_BF16)
