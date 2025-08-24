@@ -4,7 +4,7 @@ seed: 42
 paths:
   labels_tsv: "ai-readi/dataset/participants.tsv"  # B2 path to participants file
   # Set one of these per run; or use Hydra multirun with a list
-  checkpoint_path: "/Users/layne/Mac/Acdamic/UCInspire/checkpoints/best_checkpoint_multi_domain.pt"
+  checkpoint_path: "gs://layne-tpu-code-sync/checkpoints/vjepa2/best_checkpoint_multi_domain.pt"
   s3_bucket: "eye-dataset"
   s3_prefix: "ai-readi/dataset/retinal_oct/"  # B2 prefix for OCT data
 
