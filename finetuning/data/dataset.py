@@ -197,23 +197,28 @@ def create_dataloader(
     if use_distributed:
         try:
             # Try to import XLA for TPU distributed training
-            from torch_xla.core import xla_model as xm
+            import torch_xla.runtime as xr
             from torch.utils.data import DistributedSampler
             
-            import torch_xla.runtime as xr
+            world_size = xr.world_size()
+            global_rank = xr.global_ordinal()
             
-            sampler = DistributedSampler(
-                dataset,
-                num_replicas=xr.world_size(),
-                rank=xr.global_ordinal(),
-                shuffle=shuffle,
-                drop_last=False
-            )
-            # Don't shuffle in DataLoader when using sampler
-            shuffle = False
-            logger.info(f"Using DistributedSampler with {xr.world_size()} replicas, rank {xr.global_ordinal()}")
-        except ImportError:
-            logger.warning("torch_xla not available, falling back to regular DataLoader")
+            # Check if we're actually in distributed mode
+            if world_size > 1:
+                sampler = DistributedSampler(
+                    dataset,
+                    num_replicas=world_size,
+                    rank=global_rank,
+                    shuffle=shuffle,
+                    drop_last=False
+                )
+                # Don't shuffle in DataLoader when using sampler
+                shuffle = False
+                logger.info(f"Using DistributedSampler with {world_size} replicas, rank {global_rank}")
+            else:
+                logger.info("Single worker detected, not using DistributedSampler")
+        except (ImportError, RuntimeError) as e:
+            logger.warning(f"XLA distributed training not available ({e}), falling back to regular DataLoader")
     
     # Set safe defaults for multiprocessing
     dataloader_kwargs = {

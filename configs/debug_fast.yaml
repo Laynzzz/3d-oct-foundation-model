@@ -18,12 +18,12 @@ debug:
   log_every: 1       # Log every batch
 
 data:
-  num_workers: 2               # Increase workers for better throughput
+  num_workers: 0               # Disable multiprocessing due to s3fs fork-safety issue
   cache_dir: "/tmp/oct_cache"  # Enable local caching
   batch_size: 4                # Larger batches to amortize loading overhead
   val_batch_size: 4
   use_distributed: true        # Enable DistributedSampler for TPU
-  persistent_workers: true     # Keep workers warm
+  persistent_workers: false    # Disabled when num_workers=0
   prefetch_factor: 2          # Pre-load batches
   augment:
     flip: false                # Disable augmentation for faster loading
