@@ -36,8 +36,8 @@
 **Background Command**:
 ```bash
 # Running in bash session ID: bash_3
-export AWS_ACCESS_KEY_ID="004ca7ef1cea6f40000000002"
-export AWS_SECRET_ACCESS_KEY="K004pMpEbFF+X9aG/FAXlushsBmpcko" 
+export AWS_ACCESS_KEY_ID="<your-b2-access-key-id>"
+export AWS_SECRET_ACCESS_KEY="<your-b2-secret-access-key>" 
 export AWS_DEFAULT_REGION="us-west-004"
 export S3_ENDPOINT_URL="https://s3.us-west-004.backblazeb2.com"
 export PYTHONPATH=/Users/layne/Mac/Acdamic/UCInspire/3d_oct_fundation_model:$PYTHONPATH
@@ -125,8 +125,8 @@ gcloud compute tpus tpu-vm ssh oct-jepa2-v4-32 --zone=us-central2-b --project=d-
 **Environment Setup** (if needed in new session):
 ```bash
 source /opt/anaconda3/bin/activate && conda activate oct_finetuning
-export AWS_ACCESS_KEY_ID="004ca7ef1cea6f40000000002"
-export AWS_SECRET_ACCESS_KEY="K004pMpEbFF+X9aG/FAXlushsBmpcko"
+export AWS_ACCESS_KEY_ID="<your-b2-access-key-id>"
+export AWS_SECRET_ACCESS_KEY="<your-b2-secret-access-key>"
 export AWS_DEFAULT_REGION="us-west-004" 
 export S3_ENDPOINT_URL="https://s3.us-west-004.backblazeb2.com"
 export PYTHONPATH=/Users/layne/Mac/Acdamic/UCInspire/3d_oct_fundation_model:$PYTHONPATH
