@@ -1,0 +1,70 @@
+project_name: oct_cls_debug
+seed: 42
+
+paths:
+  labels_tsv: "ai-readi/dataset/participants.tsv"  # B2 path to participants file
+  checkpoint_path: "gs://layne-tpu-code-sync/checkpoints/vjepa2/vjepa2_multi_domain/best_checkpoint.pt"
+  s3_bucket: "eye-dataset"
+  s3_prefix: "ai-readi/dataset/retinal_oct/"  # B2 prefix for OCT data
+
+s3:
+  endpoint_env: "S3_ENDPOINT_URL"
+
+# Fast-start debug configuration (from fix plan)
+debug:
+  fast_start: true   # limit set sizes, disable heavy aug, log every batch
+  train_limit: 20    # Only use 20 training samples
+  val_limit: 10      # Only use 10 validation samples
+  log_every: 1       # Log every batch
+
+data:
+  num_workers: 2               # Increase workers for better throughput
+  cache_dir: "/tmp/oct_cache"  # Enable local caching
+  batch_size: 4                # Larger batches to amortize loading overhead
+  val_batch_size: 4
+  use_distributed: true        # Enable DistributedSampler for TPU
+  persistent_workers: true     # Keep workers warm
+  prefetch_factor: 2          # Pre-load batches
+  augment:
+    flip: false                # Disable augmentation for faster loading
+    intensity_jitter: false
+    resize: [64, 384, 384]     # D,H,W — match V-JEPA2 pretraining
+
+classes:
+  mapping:
+    healthy: 0
+    pre_diabetes_lifestyle_controlled: 1
+    oral_medication_and_or_non_insulin_injectable_medication_controlled: 2
+    insulin_dependent: 3
+
+model:
+  emb_dim: 768
+  freeze_encoder: true
+  unfreeze_at_epoch: -1
+  pool_method: "mean"
+  head:
+    hidden: 0
+    dropout: 0.1
+
+train:
+  epochs: 5                    # Reduce epochs for quick testing
+  lr_head: 1.0e-3
+  lr_encoder: 3.0e-5
+  weight_decay: 1.0e-4
+  optimizer: "AdamW"
+  scheduler: "cosine"
+  warmup_epochs: 1
+  class_weights: "auto"
+  precision: "fp32"
+  early_stopping:
+    enabled: true
+    patience: 2                # Faster stopping
+    min_delta: 0.01            # Less sensitive
+
+log:
+  wandb: true
+  wandb_project: "3d-oct-foundation-model"
+  wandb_entity: "laynzzz-university-at-buffalo"
+  ckpt_dir: "./runs/debug_fast"
+  save_best: true
+  save_last: false

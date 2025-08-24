@@ -167,6 +167,7 @@ def create_dataloader(
     shuffle: bool = True,
     num_workers: int = 0,
     cache_dir: Optional[str] = None,
+    use_distributed: bool = False,
     **kwargs
 ) -> torch.utils.data.DataLoader:
     """
@@ -179,6 +180,7 @@ def create_dataloader(
         shuffle: Whether to shuffle data
         num_workers: Number of worker processes
         cache_dir: Optional cache directory
+        use_distributed: Whether to use DistributedSampler for TPU training
         **kwargs: Additional DataLoader arguments
         
     Returns:
@@ -190,16 +192,42 @@ def create_dataloader(
         cache_dir=cache_dir
     )
     
+    # Handle distributed training
+    sampler = None
+    if use_distributed:
+        try:
+            # Try to import XLA for TPU distributed training
+            from torch_xla.core import xla_model as xm
+            from torch.utils.data import DistributedSampler
+            
+            sampler = DistributedSampler(
+                dataset,
+                num_replicas=xm.xrt_world_size(),
+                rank=xm.get_ordinal(),
+                shuffle=shuffle,
+                drop_last=False
+            )
+            # Don't shuffle in DataLoader when using sampler
+            shuffle = False
+            logger.info(f"Using DistributedSampler with {xm.xrt_world_size()} replicas, rank {xm.get_ordinal()}")
+        except ImportError:
+            logger.warning("torch_xla not available, falling back to regular DataLoader")
+    
     # Set safe defaults for multiprocessing
     dataloader_kwargs = {
         'batch_size': batch_size,
         'shuffle': shuffle,
+        'sampler': sampler,
         'num_workers': num_workers,
         'collate_fn': collate_fn,
-        'pin_memory': torch.cuda.is_available(),
+        'pin_memory': False,  # TPU doesn't benefit from pinning
         'persistent_workers': num_workers > 0,
+        'prefetch_factor': 2 if num_workers > 0 else None,
         **kwargs
     }
+    
+    # Remove None values
+    dataloader_kwargs = {k: v for k, v in dataloader_kwargs.items() if v is not None}
     
     return torch.utils.data.DataLoader(dataset, **dataloader_kwargs)
 

@@ -12,10 +12,13 @@ s3:
   endpoint_env: "S3_ENDPOINT_URL"
 
 data:
-  num_workers: 0  # Disable multiprocessing to avoid memory issues
+  num_workers: 2              # Increased for better throughput (from fix plan)
   cache_dir: "/tmp/oct_cache"
-  batch_size: 1  # Reduce batch size for memory safety
+  batch_size: 1               # Keep at 1 for now - DistributedSampler provides speedup
   val_batch_size: 1
+  use_distributed: true       # Enable DistributedSampler for TPU (Quick Win #1)
+  persistent_workers: true    # Keep workers warm (from fix plan)
+  prefetch_factor: 2          # Pre-load batches (from fix plan)
   augment:
     flip: true
     intensity_jitter: true

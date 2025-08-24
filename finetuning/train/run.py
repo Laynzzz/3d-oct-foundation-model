@@ -78,6 +78,20 @@ def create_data_loaders(config: Dict[str, Any]) -> tuple:
         paths_config['labels_tsv']
     )
     
+    # Apply debug limits if specified
+    debug_config = config.get('debug', {})
+    if debug_config.get('fast_start', False):
+        train_limit = debug_config.get('train_limit', 20)
+        val_limit = debug_config.get('val_limit', 10)
+        
+        if len(train_df) > train_limit:
+            train_df = train_df.head(train_limit).copy()
+            logger.info(f"Debug mode: Limited train dataset to {train_limit} samples")
+            
+        if len(val_df) > val_limit:
+            val_df = val_df.head(val_limit).copy()
+            logger.info(f"Debug mode: Limited val dataset to {val_limit} samples")
+    
     logger.info(f"Dataset sizes - Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
     
     # Create transforms
@@ -110,14 +124,15 @@ def create_data_loaders(config: Dict[str, Any]) -> tuple:
             shuffle=False
         )
     else:
-        # Real data loaders
+        # Real data loaders with distributed support
         train_loader = create_dataloader(
             train_df,
             batch_size=data_config['batch_size'],
             transforms=train_transforms,
             shuffle=True,
             num_workers=data_config['num_workers'],
-            cache_dir=data_config.get('cache_dir')
+            cache_dir=data_config.get('cache_dir'),
+            use_distributed=data_config.get('use_distributed', False)
         )
         
         val_loader = create_dataloader(
@@ -126,7 +141,8 @@ def create_data_loaders(config: Dict[str, Any]) -> tuple:
             transforms=val_transforms,
             shuffle=False,
             num_workers=data_config['num_workers'],
-            cache_dir=data_config.get('cache_dir')
+            cache_dir=data_config.get('cache_dir'),
+            use_distributed=data_config.get('use_distributed', False)
         )
     
     return train_loader, val_loader, class_to_idx, class_weights

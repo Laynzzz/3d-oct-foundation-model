@@ -278,24 +278,74 @@ class OCTTrainer:
         
         epoch_start_time = time.time()
         
+        # Check if we're using TPU/XLA
+        try:
+            from torch_xla.core import xla_model as xm
+            using_xla = True
+        except ImportError:
+            using_xla = False
+        
         for batch_idx, (volumes, labels, participant_ids) in enumerate(self.train_loader):
             if len(volumes) == 0:  # Empty batch
                 continue
+            
+            # Per-batch timing (Quick Win #2 from fix plan)
+            batch_start_time = time.time()
+            io_time = batch_start_time - epoch_start_time if batch_idx == 0 else 0
                 
             volumes = volumes.to(self.device)
             labels = labels.to(self.device)
             
-            # Forward pass
+            # Forward pass timing
+            forward_start = time.time()
             self.optimizer.zero_grad()
             logits = self.model(volumes)
             loss = self.criterion(logits, labels)
+            forward_time = time.time() - forward_start
             
-            # Backward pass
+            # Backward pass timing
+            backward_start = time.time()
             loss.backward()
             self.optimizer.step()
             
+            # XLA mark step for TPU
+            if using_xla:
+                xm.mark_step()
+            
+            backward_time = time.time() - backward_start
+            total_batch_time = time.time() - batch_start_time
+            
             # Update metrics
             self.train_metrics.update(logits.detach(), labels, loss.item())
+            
+            # Log batch-level timing to W&B (visible progress)
+            if self.use_wandb and WANDB_AVAILABLE:
+                global_step = self.epoch * len(self.train_loader) + batch_idx
+                
+                # Log timing metrics
+                timing_logs = {
+                    "timing/batch_total_s": total_batch_time,
+                    "timing/forward_s": forward_time, 
+                    "timing/backward_s": backward_time,
+                    "timing/samples_per_sec": len(volumes) / total_batch_time,
+                    "batch/loss": loss.item(),
+                    "batch/size": len(volumes)
+                }
+                
+                if io_time > 0:
+                    timing_logs["timing/io_load_s"] = io_time
+                
+                # Only log from master process in distributed setting
+                if not using_xla or (using_xla and xm.is_master_ordinal()):
+                    wandb.log(timing_logs, step=global_step)
+            
+            # Log progress every few batches
+            if batch_idx % max(1, len(self.train_loader) // 10) == 0:
+                logger.info(f"Epoch {self.epoch}, Batch {batch_idx}/{len(self.train_loader)}: "
+                           f"loss={loss.item():.4f}, batch_time={total_batch_time:.2f}s, "
+                           f"samples/sec={len(volumes)/total_batch_time:.1f}")
+            
+            epoch_start_time = time.time()  # Reset for next batch I/O timing
             
             # Log batch progress
             if batch_idx % 10 == 0:
