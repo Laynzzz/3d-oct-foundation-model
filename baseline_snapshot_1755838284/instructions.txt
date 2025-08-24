@@ -1,0 +1,32 @@
+
+BASELINE SNAPSHOT INSTRUCTIONS
+=============================
+Timestamp: 1755838284
+Directory: baseline_snapshot_1755838284
+
+CURRENT STATUS:
+- Training running at step 1113+ 
+- A-prime fix successful (no NaN at step 514)
+- Ready to capture baseline
+
+NEXT ACTIONS (do these when convenient):
+
+1. WAIT for next automatic checkpoint save
+   - Training saves every 5 epochs or at completion
+   - Check /tmp/checkpoints/ on TPU for new checkpoint
+   - OR check GCS: gs://layne-tpu-code-sync/checkpoints/vjepa2/
+
+2. CAPTURE W&B metrics over last ~200 steps:
+   - Go to W&B dashboard 
+   - Export train/lr, train/grad_norm, train/loss
+   - Should show: lr=1e-4 (flat), grad_norm>0 (finite), loss trending
+
+3. DOCUMENT throughput baseline:
+   - Current: per_core_batch_size=1, grad_accum_steps=4
+   - Global batch = 1 * 16_cores * 4_accum = 64
+   - Record samples/sec/core from recent logs
+
+4. THEN proceed to Step 2: Verify XLA-friendly metrics
+
+CRITICAL: Do NOT stop training to create snapshot!
+The training is stable and we can work around it.

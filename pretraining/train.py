@@ -395,29 +395,46 @@ def train_epoch(
             total_loss += loss.item() * config.grad_accum_steps
             num_batches += 1
             
-            # Gradient accumulation
+            # Calculate global step for logging
+            global_step = epoch * len(train_loader) + batch_idx
+            
+            # A-prime: XLA-optimized gradient handling (no loops, no all_reduce)
+            pre_clip_gn = 0.0  # Initialize for non-update steps
             if (batch_idx + 1) % config.grad_accum_steps == 0:
-                # Calculate grad norm before clipping/stepping
-                current_grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float('inf'))
-                
-                # Ultra-strict gradient clipping for multi-domain stability
+                # 1) get pre-clip norm in a single fused op (XLA-friendly)
+                pre_clip_gn = float(torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float('inf')))
+
+                # 2) guard: skip if non-finite (cheap check, no cross-replica)
+                if not math.isfinite(pre_clip_gn):
+                    optimizer.zero_grad()
+                    continue
+
+                # 3) actual clip
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.01)
-                
-                # XLA optimizer step
+
+                # 4) step + zero
                 xm.optimizer_step(optimizer)
                 optimizer.zero_grad()
-                
-                # Update learning rate - Set constant LR manually since scheduler disabled
-                target_lr = config.base_lr if hasattr(config, 'base_lr') else 1e-4
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] = target_lr  # Force LR = 1e-4
-                
-                # Debug: Print LR to verify it's being set (remove after verification)
-                if batch_idx % 50 == 0:  # Every 50 steps
-                    current_lr = optimizer.param_groups[0]['lr']
-                    logger.info(f"Debug: Setting LR to {target_lr}, optimizer LR is {current_lr}")
-            else:
-                current_grad_norm = 0.0  # Not a gradient update step
+
+                # Step scheduler on UPDATE steps only (from fix.md)
+                if scheduler is not None:
+                    scheduler.step()
+
+                # 5) log from master only
+                if xm.is_master_ordinal():
+                    wandb.log({
+                        "train/grad_norm": pre_clip_gn,
+                        "train/lr": optimizer.param_groups[0]["lr"],
+                        "train/loss": float(loss.item() * config.grad_accum_steps),
+                        "train/epoch": epoch
+                    }, step=global_step)
+                    
+                # Heartbeat for first few steps
+                if xm.is_master_ordinal() and global_step < 3:
+                    logger.info(f"[heartbeat] completed optimizer_step at update step {global_step}")
+            
+            # Store grad norm for old logging system compatibility
+            current_grad_norm = pre_clip_gn if (batch_idx + 1) % config.grad_accum_steps == 0 else 0.0
             
             # Calculate metrics
             step_time = time.time() - step_start_time
@@ -429,32 +446,7 @@ def train_epoch(
                 throughput=throughput
             )
             
-            # Logging
-            global_step = epoch * len(train_loader) + batch_idx
-            
-            if (batch_idx + 1) % config.log_every_steps == 0:
-                # Get actual LR from optimizer (not scheduler since disabled)
-                current_lr = optimizer.param_groups[0]['lr']
-                
-                log_training_metrics(
-                    step=global_step,
-                    epoch=epoch,
-                    loss=loss.item() * config.grad_accum_steps,
-                    lr=current_lr,
-                    throughput=throughput,
-                    logger=logger
-                )
-                
-                # Additional W&B metrics
-                local_rank = int(os.environ.get('LOCAL_RANK', 0))
-                if local_rank == 0 and wandb.run is not None:
-                    # Get EMA momentum from target encoder
-                    ema_momentum = model.target_encoder.momentum if hasattr(model, 'target_encoder') else 0.0
-                    wandb.log({
-                        'train/ema_momentum': ema_momentum,
-                        'train/grad_norm': current_grad_norm,
-                        'train/batch_idx': batch_idx,
-                    }, step=global_step)
+            # A-prime: Old logging system disabled (now using master-only W&B above)
         
         except RuntimeError as e:
             if "out of memory" in str(e).lower() or "resource exhausted" in str(e).lower():
@@ -542,10 +534,12 @@ def validate_epoch(model: nn.Module, val_loader, epoch: int, config: DictConfig)
         logger.info(f"Validation epoch {epoch}: avg_loss = {avg_loss:.6f}")
         
         if wandb.run is not None:
+            # Use current global step for validation logging
+            val_global_step = epoch * len(val_loader)  # Approximate
             wandb.log({
                 'val/loss': avg_loss,
                 'val/epoch': epoch
-            })
+            }, step=val_global_step)
     
     return avg_loss
 
@@ -570,7 +564,12 @@ def main_worker(config: DictConfig):
     log_system_info(logger)
     
     # Setup W&B (master only)
-    setup_wandb(config)
+    # A-prime: Initialize W&B only on master
+    if xm.is_master_ordinal():
+        setup_wandb(config)
+    else:
+        import wandb
+        wandb = None  # sentinel; never call on non-master
     
     # Create model
     model = VJEPA3D(
@@ -585,13 +584,45 @@ def main_worker(config: DictConfig):
     # Log model info (master only)
     log_model_info(model, logger)
     
-    # Create optimizer and scheduler
-    optimizer = create_optimizer(model, config)
-    scheduler = get_cosine_lr_scheduler(
-        optimizer, 
-        warmup_epochs=config.get('warmup_epochs', 10),
-        total_epochs=config.epochs
+    # Create optimizer
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=float(config.base_lr),
+        weight_decay=0.05,
+        betas=(0.9, 0.95),
     )
+    
+    # Create data loaders first to get dataset length
+    train_loader, val_loader = create_data_loaders(config)
+    
+    # Step 3: Monotonic step-based cosine scheduler (from fix.md)
+    if config.get('use_scheduler', False):
+        # Build once after you know dataset length:
+        world = xr.world_size()  # PyTorch 2.7 compatible
+        eff_batch = config.per_core_batch_size * world * config.grad_accum_steps
+        steps_per_epoch = max(1, (len(train_loader.dataset) // eff_batch))
+        num_train_steps = max(1, steps_per_epoch * config.epochs)
+
+        warmup = max(1, int(0.03 * num_train_steps))
+        base_lr = float(config.base_lr)       # e.g., 1e-4
+        min_lr  = base_lr * 0.1
+
+        def lr_lambda(step):
+            if step < warmup:
+                return step / warmup
+            t = (step - warmup) / max(1, num_train_steps - warmup)
+            return (min_lr/base_lr) + 0.5*(1 - (min_lr/base_lr))*(1 + math.cos(math.pi*t))
+
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+        
+        # Log scheduler info (master only)
+        if xm.is_master_ordinal():
+            logger.info(f"Scheduler enabled: {num_train_steps} steps, {warmup} warmup, {base_lr} -> {min_lr}")
+            # Log first few scheduled LRs for verification
+            sim = [base_lr * lr_lambda(s) for s in range(min(20, num_train_steps))]
+            logger.info(f"First 20 scheduled LRs: {sim}")
+    else:
+        scheduler = None  # Keep disabled for stability
     
     # Load checkpoint if resuming
     start_epoch = 0
@@ -603,8 +634,7 @@ def main_worker(config: DictConfig):
         )
         start_epoch += 1  # Start from next epoch
     
-    # Create data loaders
-    train_loader, val_loader = create_data_loaders(config)
+    # Data loaders already created above for scheduler calculation
     
     # Metrics tracker
     metrics_tracker = MetricsTracker()

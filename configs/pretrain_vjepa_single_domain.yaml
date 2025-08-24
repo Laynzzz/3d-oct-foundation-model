@@ -20,14 +20,15 @@ patch_size: [4, 16, 16]
 mask_ratio: 0.6
 
 # train
-global_batch_size: 32                # Reduced from 128 to handle DICOM failures
-per_core_batch_size: 1              # Reduced from 2 to minimize batch impact
-grad_accum_steps: 4                 # Fixed: 32 ÷ (1 × 8) = 4 for proper gradient accumulation
-epochs: 120
-base_lr: 1.5e-3
+global_batch_size: 32
+per_core_batch_size: 1
+grad_accum_steps: 2                 # Fixed: 32 ÷ (1 × 16) = 2 for proper gradient accumulation on 16 TPU cores
+epochs: 120                         # Fewer epochs needed for single-domain vs multi-domain
+base_lr: 1e-4  # Reduced from unstable 1.5e-3 to proven stable rate
 weight_decay: 0.05
 warmup_epochs: 10
 ema_base: 0.996
+use_scheduler: true  # Step 3: Enable monotonic cosine scheduler (proven stable)
 
 # logging/ckpt
 ckpt_dir: gs://layne-tpu-code-sync/checkpoints/vjepa2/${experiment_name}
@@ -38,3 +39,8 @@ log_every_steps: 2
 workers: 0  # Fixed: multiprocessing causes 'mappingproxy' serialization errors
 prefetch_factor: null  # Must be null when workers=0
 pin_memory: false
+drop_last: true  # Drop incomplete batches to maintain consistency
+persistent_workers: false  # Disable for stability with corrupted data
+
+# mixed precision
+use_bf16: true  # Modern BF16 configuration (replaces deprecated XLA_USE_BF16)

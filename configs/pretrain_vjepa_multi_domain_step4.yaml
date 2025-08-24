@@ -1,0 +1,46 @@
+experiment_name: vjepa2_multi_domain_step4
+seed: 1337
+wandb:
+  project: 3d-oct-foundation-model
+  entity: laynzzz-university-at-buffalo
+  log_artifacts: true
+  ckpt_artifact_name: "${experiment_name}-ckpt"
+
+# data
+gcs_root: gs://layne-tpu-code-sync/OCTdata/OCTdata
+manifest_path: ${gcs_root}/manifest.tsv
+list_strategy: multi_domain    # [single_domain|multi_domain]
+cache_local: true
+cache_dir: /tmp/oct_cache
+
+# spatial
+target_spacing: [0.05, 0.02, 0.02]  # [dz, dy, dx] mm
+image_size: [64, 384, 384]          # [D, H, W]
+patch_size: [4, 16, 16]
+mask_ratio: 0.6
+
+# train - Step 4: Throughput optimization (Option A)
+global_batch_size: 32               # Keep same global batch
+per_core_batch_size: 2              # Step 4: Double per-core batch
+grad_accum_steps: 1                 # Step 4: Halve accumulation (32 ÷ (2 × 16) = 1)
+epochs: 150
+base_lr: 1e-4  
+weight_decay: 0.05
+warmup_epochs: 10
+ema_base: 0.996
+use_scheduler: true  # Keep Step 3 scheduler enabled
+
+# logging/ckpt
+ckpt_dir: gs://layne-tpu-code-sync/checkpoints/vjepa2/${experiment_name}
+ckpt_every_epochs: 5
+log_every_steps: 2
+
+# loader - Step 4: Keep minimal settings for now
+workers: 0  # Will optimize in Step 5
+prefetch_factor: null
+pin_memory: false
+drop_last: true
+persistent_workers: false
+
+# mixed precision
+use_bf16: true  # Modern BF16 configuration

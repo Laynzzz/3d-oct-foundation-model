@@ -1,0 +1,27 @@
+{
+  "timestamp": 1755838284,
+  "step_range": "1113+",
+  "status": "stable - passed critical step 514 without NaN",
+  "a_prime_fix": "applied and working",
+  "config": {
+    "lr": "constant 1e-4 (base_lr)",
+    "grad_clip": 0.01,
+    "workers": 0,
+    "persistent_workers": false,
+    "pin_memory": false,
+    "torch_compile_disabled": true
+  },
+  "key_metrics_to_verify": [
+    "train/lr should be flat at 1e-4",
+    "train/grad_norm should be finite and >0",
+    "train/loss should be trending/stable",
+    "no train/grad_nonfinite events",
+    "no N/A or NaN losses"
+  ],
+  "next_steps": [
+    "1. Wait for next checkpoint save (every 5 epochs or at end)",
+    "2. Verify current metrics are XLA-friendly",
+    "3. Add monotonic cosine scheduler gradually",
+    "4. Optimize throughput one change at a time"
+  ]
+}
