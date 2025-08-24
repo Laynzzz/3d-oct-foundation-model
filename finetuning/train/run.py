@@ -260,9 +260,9 @@ def main(cfg: DictConfig) -> None:
     logger.info("Configuration:")
     logger.info(OmegaConf.to_yaml(cfg))
     
-    # Check if checkpoint exists
+    # Check if checkpoint exists (support GCS paths)
     checkpoint_path = config['paths']['checkpoint_path']
-    if not os.path.exists(checkpoint_path):
+    if not checkpoint_path.startswith('gs://') and not os.path.exists(checkpoint_path):
         logger.error(f"Checkpoint not found: {checkpoint_path}")
         sys.exit(1)
     
@@ -289,9 +289,9 @@ def main_simple(config_path: str, checkpoint_path: Optional[str] = None):
     
     logger.info(f"Loaded config from {config_path}")
     
-    # Check checkpoint exists
+    # Check checkpoint exists (support GCS paths)
     checkpoint_path = config['paths']['checkpoint_path']
-    if not os.path.exists(checkpoint_path):
+    if not checkpoint_path.startswith('gs://') and not os.path.exists(checkpoint_path):
         logger.error(f"Checkpoint not found: {checkpoint_path}")
         return False
     
