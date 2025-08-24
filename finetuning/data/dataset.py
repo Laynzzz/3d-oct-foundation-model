@@ -200,16 +200,18 @@ def create_dataloader(
             from torch_xla.core import xla_model as xm
             from torch.utils.data import DistributedSampler
             
+            import torch_xla.runtime as xr
+            
             sampler = DistributedSampler(
                 dataset,
-                num_replicas=xm.xrt_world_size(),
-                rank=xm.get_ordinal(),
+                num_replicas=xr.world_size(),
+                rank=xr.global_ordinal(),
                 shuffle=shuffle,
                 drop_last=False
             )
             # Don't shuffle in DataLoader when using sampler
             shuffle = False
-            logger.info(f"Using DistributedSampler with {xm.xrt_world_size()} replicas, rank {xm.get_ordinal()}")
+            logger.info(f"Using DistributedSampler with {xr.world_size()} replicas, rank {xr.global_ordinal()}")
         except ImportError:
             logger.warning("torch_xla not available, falling back to regular DataLoader")
     

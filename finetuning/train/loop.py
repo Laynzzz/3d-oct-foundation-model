@@ -336,7 +336,15 @@ class OCTTrainer:
                     timing_logs["timing/io_load_s"] = io_time
                 
                 # Only log from master process in distributed setting
-                if not using_xla or (using_xla and xm.is_master_ordinal()):
+                is_master = True
+                if using_xla:
+                    try:
+                        import torch_xla.runtime as xr
+                        is_master = (xr.global_ordinal() == 0)
+                    except:
+                        is_master = True
+                
+                if is_master:
                     wandb.log(timing_logs, step=global_step)
             
             # Log progress every few batches
