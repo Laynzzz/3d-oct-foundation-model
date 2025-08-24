@@ -1,0 +1,26 @@
+# Debug configuration for smoke testing
+defaults:
+  - cls_linear_probe
+
+# Debug overrides
+data:
+  batch_size: 1
+  val_batch_size: 1
+  num_workers: 0  # No multiprocessing for debugging
+  cache_dir: null  # No caching
+
+train:
+  epochs: 2
+  lr_head: 1.0e-2  # Higher LR for quick convergence
+
+model:
+  head:
+    hidden: 0  # Linear probe only
+    dropout: 0.0  # No dropout for debugging
+
+log:
+  wandb: false
+  ckpt_dir: "./runs/debug"
+
+# Use dummy data for debugging
+debug_mode: true

@@ -1,0 +1,28 @@
+# Configuration for multi-checkpoint sweep
+# Used with: python -m finetuning.train.run -m +sweep=true \
+#   paths.checkpoint_path=multi_domain.pt,single_01.pt,single_02.pt
+
+defaults:
+  - cls_linear_probe
+
+sweep: true
+
+# Hydra multirun configuration
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    _target_: hydra._internal.BasicSweeper
+    max_batch_size: null
+    params:
+      paths.checkpoint_path: 
+        - "/Users/layne/Mac/Acdamic/UCInspire/checkpoints/best_checkpoint_multi_domain.pt"
+        - "/Users/layne/Mac/Acdamic/UCInspire/checkpoints/best_checkpoint_single_domain_01.pt"
+        - "/Users/layne/Mac/Acdamic/UCInspire/checkpoints/best_checkpoint_single_domain_02.pt"
+
+# Override run directory for sweep
+log:
+  ckpt_dir: "./runs/sweep_${now:%Y%m%d_%H%M%S}"
+  
+# Reduced epochs for quick comparison
+train:
+  epochs: 30
