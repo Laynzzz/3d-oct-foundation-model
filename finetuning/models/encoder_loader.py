@@ -9,6 +9,8 @@ from typing import Optional, Dict, Any, Tuple
 import logging
 import os
 import sys
+import tempfile
+import subprocess
 
 # Add models directory to path for importing V-JEPA2
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -17,22 +19,73 @@ from models.vjepa_3d import VJEPA3D, VisionTransformer3D
 logger = logging.getLogger(__name__)
 
 
-def load_vjepa2_checkpoint(checkpoint_path: str) -> Dict[str, Any]:
+def _download_gcs_file(gcs_path: str) -> str:
     """
-    Load V-JEPA2 checkpoint from file.
+    Download GCS file to temporary location.
     
     Args:
-        checkpoint_path: Path to checkpoint file
+        gcs_path: GCS path (gs://...)
+        
+    Returns:
+        Path to downloaded temporary file
+    """
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pt')
+    temp_path = temp_file.name
+    temp_file.close()
+    
+    try:
+        # Use gsutil to download file
+        result = subprocess.run(
+            ['gsutil', 'cp', gcs_path, temp_path],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        logger.info(f"Downloaded {gcs_path} to {temp_path}")
+        return temp_path
+        
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to download {gcs_path}: {e.stderr}")
+        # Clean up temp file
+        try:
+            os.unlink(temp_path)
+        except:
+            pass
+        raise FileNotFoundError(f"Could not download GCS file: {gcs_path}")
+    except FileNotFoundError:
+        logger.error("gsutil not found. Make sure Google Cloud SDK is installed.")
+        # Clean up temp file
+        try:
+            os.unlink(temp_path)
+        except:
+            pass
+        raise
+
+
+def load_vjepa2_checkpoint(checkpoint_path: str) -> Dict[str, Any]:
+    """
+    Load V-JEPA2 checkpoint from file or GCS.
+    
+    Args:
+        checkpoint_path: Path to checkpoint file (local or gs://)
         
     Returns:
         Loaded checkpoint dictionary
     """
-    if not os.path.exists(checkpoint_path):
-        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+    temp_path = None
+    actual_path = checkpoint_path
     
     try:
+        # Handle GCS paths
+        if checkpoint_path.startswith('gs://'):
+            logger.info(f"Downloading GCS checkpoint: {checkpoint_path}")
+            temp_path = _download_gcs_file(checkpoint_path)
+            actual_path = temp_path
+        elif not os.path.exists(checkpoint_path):
+            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        
         # Load checkpoint on CPU first - use weights_only=False for our trusted checkpoints
-        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+        checkpoint = torch.load(actual_path, map_location='cpu', weights_only=False)
         logger.info(f"Loaded checkpoint from {checkpoint_path}")
         
         # Log checkpoint info
@@ -46,6 +99,14 @@ def load_vjepa2_checkpoint(checkpoint_path: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to load checkpoint from {checkpoint_path}: {e}")
         raise
+    finally:
+        # Clean up temporary file if we downloaded one
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+                logger.debug(f"Cleaned up temporary file: {temp_path}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up temporary file {temp_path}: {e}")
 
 
 def extract_encoder_config(checkpoint: Dict[str, Any]) -> Dict[str, Any]:
