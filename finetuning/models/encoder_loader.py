@@ -31,8 +31,8 @@ def load_vjepa2_checkpoint(checkpoint_path: str) -> Dict[str, Any]:
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
     
     try:
-        # Load checkpoint on CPU first
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        # Load checkpoint on CPU first - use weights_only=False for our trusted checkpoints
+        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
         logger.info(f"Loaded checkpoint from {checkpoint_path}")
         
         # Log checkpoint info

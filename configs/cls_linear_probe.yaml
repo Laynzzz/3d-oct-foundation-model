@@ -2,20 +2,20 @@ project_name: oct_cls_v1
 seed: 42
 
 paths:
-  labels_tsv: "/Users/layne/Mac/Acdamic/UCInspire/3d_oct_fundation_model/fine-tuneing-data/participants.tsv"
+  labels_tsv: "ai-readi/dataset/participants.tsv"  # B2 path to participants file
   # Set one of these per run; or use Hydra multirun with a list
   checkpoint_path: "/Users/layne/Mac/Acdamic/UCInspire/checkpoints/best_checkpoint_multi_domain.pt"
   s3_bucket: "eye-dataset"
-  s3_prefix: ""         # TODO: confirm exact B2 bucket structure for fine-tuning data
+  s3_prefix: "ai-readi/dataset/retinal_oct/"  # B2 prefix for OCT data
 
 s3:
   endpoint_env: "S3_ENDPOINT_URL"
 
 data:
-  num_workers: 4
+  num_workers: 0  # Disable multiprocessing to avoid memory issues
   cache_dir: "/tmp/oct_cache"
-  batch_size: 2
-  val_batch_size: 2
+  batch_size: 1  # Reduce batch size for memory safety
+  val_batch_size: 1
   augment:
     flip: true
     intensity_jitter: true

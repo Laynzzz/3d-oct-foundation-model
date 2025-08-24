@@ -83,7 +83,30 @@ class ValidationSuite:
     def check_labels_loading(self, labels_path: str) -> ValidationResult:
         """Test labels TSV loading and processing."""
         try:
-            if not os.path.exists(labels_path):
+            # Handle both local and B2 paths
+            if labels_path.startswith('ai-readi/') or labels_path.startswith('eye-dataset/'):
+                # B2 path - download the file first
+                try:
+                    from ..storage.b2 import read_with_cache
+                    bucket_name = 'eye-dataset'
+                    key = labels_path.replace('eye-dataset/', '') if labels_path.startswith('eye-dataset/') else labels_path
+                    
+                    # Download to temporary file
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(mode='w+b', suffix='.tsv', delete=False) as tmp_file:
+                        data = read_with_cache(bucket_name, key)
+                        tmp_file.write(data)
+                        temp_path = tmp_file.name
+                    
+                    labels_path = temp_path  # Use temporary file for processing
+                except Exception as e:
+                    return self.add_result(
+                        "Labels Loading",
+                        False,
+                        f"Failed to download labels from B2: {str(e)}",
+                        {"b2_path": labels_path, "error": str(e)}
+                    )
+            elif not os.path.exists(labels_path):
                 return self.add_result(
                     "Labels Loading",
                     False,
@@ -123,13 +146,17 @@ class ValidationSuite:
                 {"error": str(e), "path": labels_path}
             )
     
-    def check_oct_locator(self, sample_participants: List[str] = None) -> ValidationResult:
+    def check_oct_locator(self, sample_participants: List[str] = None, quick_mode: bool = False) -> ValidationResult:
         """Test OCT data locator functionality."""
         try:
             locator = get_default_locator()
             
-            # Get available participants
-            available = locator.get_available_participants()
+            # Get available participants (use smoke test for quick mode)
+            if quick_mode:
+                key_mapping = locator.smoke_test(max_participants_per_device=3)
+                available = list(key_mapping.keys())
+            else:
+                available = locator.get_available_participants()
             
             if not available:
                 return self.add_result(
@@ -357,7 +384,8 @@ class ValidationSuite:
         labels_path: str,
         checkpoint_paths: List[str],
         config: Dict[str, Any],
-        test_b2: bool = True
+        test_b2: bool = True,
+        quick_mode: bool = False
     ) -> bool:
         """
         Run complete smoke test suite.
@@ -382,7 +410,7 @@ class ValidationSuite:
         
         # Test OCT locator (critical if using real data)
         if test_b2:
-            self.check_oct_locator()
+            self.check_oct_locator(quick_mode=quick_mode)
         
         # Test dummy dataset creation (critical)
         dummy_dataset_result = self.check_dummy_dataset(labels_path)
@@ -439,9 +467,10 @@ class ValidationSuite:
 
 
 def run_pipeline_smoke_test(
-    labels_path: str = "/Users/layne/Mac/Acdamic/UCInspire/3d_oct_fundation_model/fine-tuneing-data/participants.tsv",
+    labels_path: str = "ai-readi/dataset/participants.tsv",  # B2 path
     checkpoint_paths: List[str] = None,
-    test_b2_connection: bool = False
+    test_b2_connection: bool = False,
+    quick_mode: bool = False
 ) -> bool:
     """
     Run complete pipeline smoke test with default paths.
@@ -450,6 +479,7 @@ def run_pipeline_smoke_test(
         labels_path: Path to participants.tsv
         checkpoint_paths: List of checkpoint paths to test
         test_b2_connection: Whether to test B2 (requires credentials)
+        quick_mode: Use limited participants for faster testing
         
     Returns:
         True if all critical tests pass
@@ -486,7 +516,8 @@ def run_pipeline_smoke_test(
         labels_path=labels_path,
         checkpoint_paths=checkpoint_paths,
         config=config,
-        test_b2=test_b2_connection
+        test_b2=test_b2_connection,
+        quick_mode=quick_mode
     )
     
     suite.print_summary()

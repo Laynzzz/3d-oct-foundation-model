@@ -65,13 +65,13 @@ class ResizeVolume:
 class RandomFlip3D:
     """Random flips for 3D volumes."""
     
-    def __init__(self, p: float = 0.5, axes: Tuple[int, ...] = (2, 3, 4)):
+    def __init__(self, p: float = 0.5, axes: Tuple[int, ...] = (1, 2, 3)):
         """
         Initialize random flip transform.
         
         Args:
             p: Probability of applying flip
-            axes: Axes to flip (2=D, 3=H, 4=W in [B, D, H, W] tensor)
+            axes: Axes to flip (1=D, 2=H, 3=W in [B, D, H, W] tensor)
         """
         self.p = p
         self.axes = axes
@@ -82,7 +82,7 @@ class RandomFlip3D:
             raise ValueError(f"Expected 4D tensor [B, D, H, W], got shape {volume.shape}")
         
         for axis in self.axes:
-            if torch.rand(1).item() < self.p:
+            if axis < volume.dim() and torch.rand(1).item() < self.p:  # Safety check
                 volume = torch.flip(volume, dims=[axis])
         
         return volume
@@ -105,12 +105,12 @@ class IntensityJitter:
     def __call__(self, volume: torch.Tensor) -> torch.Tensor:
         """Apply intensity jittering."""
         if self.brightness > 0:
-            brightness_factor = torch.uniform(-self.brightness, self.brightness, (1,)).item()
-            volume = volume + brightness_factor
+            brightness_factor = (torch.rand(1) * 2 - 1) * self.brightness  # Range: [-brightness, brightness]
+            volume = volume + brightness_factor.item()
         
         if self.contrast > 0:
-            contrast_factor = torch.uniform(1 - self.contrast, 1 + self.contrast, (1,)).item()
-            volume = volume * contrast_factor
+            contrast_factor = torch.rand(1) * (2 * self.contrast) + (1 - self.contrast)  # Range: [1-contrast, 1+contrast]
+            volume = volume * contrast_factor.item()
         
         # Clamp to reasonable range
         volume = torch.clamp(volume, 0, 1)

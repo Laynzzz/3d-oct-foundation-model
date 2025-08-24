@@ -187,8 +187,9 @@ def train_model(config: Dict[str, Any]) -> Dict[str, Any]:
         val_loader=val_loader,
         config=config,
         device=device,
-        use_wandb=False,  # Already initialized above
-        wandb_run=wandb_run
+        use_wandb=config.get('log', {}).get('wandb', False),
+        wandb_project=config.get('log', {}).get('wandb_project'),
+        wandb_run_name=wandb_run.name if wandb_run else None
     )
     
     # Train model

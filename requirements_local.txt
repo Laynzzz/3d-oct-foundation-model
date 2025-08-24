@@ -1,0 +1,24 @@
+torch==2.*
+torchvision==0.*
+monai
+pydicom
+pylibjpeg
+pylibjpeg-libjpeg
+pylibjpeg-openjpeg
+gcsfs
+fsspec
+timm
+einops
+omegaconf
+wandb
+
+# Fine-tuning dependencies
+pandas
+numpy
+scikit-learn
+s3fs
+boto3
+hydra-core
+
+# optional
+nibabel

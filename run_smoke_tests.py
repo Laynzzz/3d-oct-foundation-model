@@ -135,7 +135,8 @@ def main():
         success = run_pipeline_smoke_test(
             labels_path=str(labels_path),
             checkpoint_paths=checkpoint_paths,
-            test_b2_connection=args.test_b2
+            test_b2_connection=args.test_b2,
+            quick_mode=args.quick
         )
         
         if success:

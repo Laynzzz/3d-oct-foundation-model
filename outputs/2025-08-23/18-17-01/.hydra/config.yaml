@@ -1,0 +1,57 @@
+project_name: oct_cls_v1
+seed: 42
+paths:
+  labels_tsv: ai-readi/dataset/participants.tsv
+  checkpoint_path: /Users/layne/Mac/Acdamic/UCInspire/checkpoints/best_checkpoint_multi_domain.pt
+  s3_bucket: eye-dataset
+  s3_prefix: ai-readi/dataset/retinal_oct/
+s3:
+  endpoint_env: S3_ENDPOINT_URL
+data:
+  num_workers: 0
+  cache_dir: null
+  batch_size: 1
+  val_batch_size: 1
+  augment:
+    flip: true
+    intensity_jitter: true
+    resize:
+    - 64
+    - 384
+    - 384
+classes:
+  mapping:
+    healthy: 0
+    pre_diabetes_lifestyle_controlled: 1
+    oral_medication_and_or_non_insulin_injectable_medication_controlled: 2
+    insulin_dependent: 3
+model:
+  emb_dim: 768
+  freeze_encoder: true
+  unfreeze_at_epoch: -1
+  pool_method: mean
+  head:
+    hidden: 0
+    dropout: 0.0
+train:
+  epochs: 2
+  lr_head: 0.01
+  lr_encoder: 3.0e-05
+  weight_decay: 0.0001
+  optimizer: AdamW
+  scheduler: cosine
+  warmup_epochs: 2
+  class_weights: auto
+  precision: fp32
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.001
+log:
+  wandb: false
+  wandb_project: 3d-oct-foundation-model
+  wandb_entity: laynzzz-university-at-buffalo
+  ckpt_dir: ./runs/debug
+  save_best: true
+  save_last: true
+debug_mode: true

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 def load_labels(tsv_path: str) -> pd.DataFrame:
     """
-    Load labels from TSV file.
+    Load labels from TSV file (local or B2).
     
     Args:
         tsv_path: Path to participants.tsv file
@@ -21,9 +21,42 @@ def load_labels(tsv_path: str) -> pd.DataFrame:
         DataFrame with participant metadata
     """
     try:
-        df = pd.read_csv(tsv_path, sep='\t')
-        logger.info(f"Loaded {len(df)} participants from {tsv_path}")
-        return df
+        # Handle B2 paths
+        if tsv_path.startswith('ai-readi/') or tsv_path.startswith('eye-dataset/'):
+            # B2 path - download the file first
+            try:
+                from ..storage.b2 import read_with_cache
+                bucket_name = 'eye-dataset'
+                key = tsv_path.replace('eye-dataset/', '') if tsv_path.startswith('eye-dataset/') else tsv_path
+                
+                # Download to temporary file
+                import tempfile
+                import os
+                with tempfile.NamedTemporaryFile(mode='w+b', suffix='.tsv', delete=False) as tmp_file:
+                    data = read_with_cache(bucket_name, key)
+                    tmp_file.write(data)
+                    temp_path = tmp_file.name
+                
+                # Read from temporary file
+                df = pd.read_csv(temp_path, sep='\t')
+                
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass  # Ignore cleanup errors
+                    
+                logger.info(f"Loaded {len(df)} participants from B2: {tsv_path}")
+                return df
+                
+            except Exception as e:
+                logger.error(f"Failed to load labels from B2 path {tsv_path}: {e}")
+                raise
+        else:
+            # Local file path
+            df = pd.read_csv(tsv_path, sep='\t')
+            logger.info(f"Loaded {len(df)} participants from {tsv_path}")
+            return df
     except Exception as e:
         logger.error(f"Failed to load labels from {tsv_path}: {e}")
         raise

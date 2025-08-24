@@ -1,0 +1,120 @@
+[2025-08-23 18:57:05,817][__main__][INFO] - Configuration:
+[2025-08-23 18:57:05,818][__main__][INFO] - project_name: oct_cls_v1
+seed: 42
+paths:
+  labels_tsv: ai-readi/dataset/participants.tsv
+  checkpoint_path: /Users/layne/Mac/Acdamic/UCInspire/checkpoints/best_checkpoint_multi_domain.pt
+  s3_bucket: eye-dataset
+  s3_prefix: ai-readi/dataset/retinal_oct/
+s3:
+  endpoint_env: S3_ENDPOINT_URL
+data:
+  num_workers: 4
+  cache_dir: /tmp/oct_cache
+  batch_size: 2
+  val_batch_size: 2
+  augment:
+    flip: true
+    intensity_jitter: true
+    resize:
+    - 64
+    - 384
+    - 384
+classes:
+  mapping:
+    healthy: 0
+    pre_diabetes_lifestyle_controlled: 1
+    oral_medication_and_or_non_insulin_injectable_medication_controlled: 2
+    insulin_dependent: 3
+model:
+  emb_dim: 768
+  freeze_encoder: true
+  unfreeze_at_epoch: -1
+  pool_method: mean
+  head:
+    hidden: 0
+    dropout: 0.1
+train:
+  epochs: 50
+  lr_head: 0.001
+  lr_encoder: 3.0e-05
+  weight_decay: 0.0001
+  optimizer: AdamW
+  scheduler: cosine
+  warmup_epochs: 2
+  class_weights: auto
+  precision: fp32
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.001
+log:
+  wandb: false
+  wandb_project: 3d-oct-foundation-model
+  wandb_entity: laynzzz-university-at-buffalo
+  ckpt_dir: ./runs/cls_lp_v1
+  save_best: true
+  save_last: true
+
+[2025-08-23 18:57:05,821][__main__][INFO] - Random seed set to 42
+[2025-08-23 18:57:05,821][__main__][INFO] - Using CPU device
+[2025-08-23 18:57:05,821][finetuning.data.labels][INFO] - Starting labels processing pipeline
+[2025-08-23 18:57:06,275][finetuning.data.labels][INFO] - Loaded 1067 participants from B2: ai-readi/dataset/participants.tsv
+[2025-08-23 18:57:06,279][finetuning.data.labels][INFO] - Filtered to 1061 participants with OCT data
+[2025-08-23 18:57:06,284][finetuning.data.labels][INFO] - Class distribution:
+[2025-08-23 18:57:06,284][finetuning.data.labels][INFO] -   0 (healthy): 369 samples
+[2025-08-23 18:57:06,284][finetuning.data.labels][INFO] -   1 (pre_diabetes_lifestyle_controlled): 242 samples
+[2025-08-23 18:57:06,284][finetuning.data.labels][INFO] -   2 (oral_medication_and_or_non_insulin_injectable_medication_controlled): 321 samples
+[2025-08-23 18:57:06,284][finetuning.data.labels][INFO] -   3 (insulin_dependent): 129 samples
+[2025-08-23 18:57:06,285][finetuning.data.labels][INFO] - Split sizes - Train: 743, Val: 159, Test: 159
+[2025-08-23 18:57:06,286][finetuning.data.labels][INFO] - Train class distribution: {0: 290, 1: 162, 2: 233, 3: 58}
+[2025-08-23 18:57:06,286][finetuning.data.labels][INFO] - Val class distribution: {0: 39, 1: 40, 2: 47, 3: 33}
+[2025-08-23 18:57:06,287][finetuning.data.labels][INFO] - Test class distribution: {0: 40, 1: 40, 2: 41, 3: 38}
+[2025-08-23 18:57:06,288][finetuning.data.labels][INFO] - Class weights (balanced): {0: 0.6405172413793103, 1: 1.146604938271605, 2: 0.7972103004291845, 3: 3.2025862068965516}
+[2025-08-23 18:57:06,288][finetuning.data.labels][INFO] - Labels processing completed
+[2025-08-23 18:57:06,288][__main__][INFO] - Dataset sizes - Train: 743, Val: 159, Test: 159
+[2025-08-23 18:57:06,288][finetuning.data.locator][INFO] - Building OCT key mapping from bucket contents...
+[2025-08-23 18:57:06,547][finetuning.data.locator][INFO] - Found 4 device directories under 'ai-readi/dataset/retinal_oct/structural_oct/'
+[2025-08-23 18:57:06,801][finetuning.data.locator][INFO] - Found 1000 participants under heidelberg_spectralis
+[2025-08-23 18:58:23,828][finetuning.data.locator][INFO] - Found 1000 participants under topcon_maestro2
+[2025-08-23 18:59:38,069][finetuning.data.locator][INFO] - Found 1000 participants under topcon_triton
+[2025-08-23 19:01:02,341][finetuning.data.locator][INFO] - Found 1000 participants under zeiss_cirrus
+[2025-08-23 19:02:30,354][finetuning.data.locator][INFO] - Found 24750 OCT files under prefix 'ai-readi/dataset/retinal_oct/structural_oct/'
+[2025-08-23 19:02:30,427][finetuning.data.locator][ERROR] - Failed to save cache to oct_key_cache.json: [Errno 2] No such file or directory: ''
+[2025-08-23 19:02:30,427][finetuning.data.locator][INFO] - Built key mapping for 383 participants
+[2025-08-23 19:02:30,430][finetuning.data.dataset][WARNING] - Filtered dataset: 743 -> 255 samples (488 participants without OCT data)
+[2025-08-23 19:02:30,430][finetuning.data.dataset][INFO] - Initialized dataset with 255 samples
+[2025-08-23 19:02:30,430][finetuning.data.locator][INFO] - Building OCT key mapping from bucket contents...
+[2025-08-23 19:02:30,430][finetuning.data.locator][INFO] - Found 4 device directories under 'ai-readi/dataset/retinal_oct/structural_oct/'
+[2025-08-23 19:02:30,430][finetuning.data.locator][INFO] - Found 1000 participants under heidelberg_spectralis
+[2025-08-23 19:02:30,465][finetuning.data.locator][INFO] - Found 1000 participants under topcon_maestro2
+[2025-08-23 19:02:30,500][finetuning.data.locator][INFO] - Found 1000 participants under topcon_triton
+[2025-08-23 19:02:30,534][finetuning.data.locator][INFO] - Found 1000 participants under zeiss_cirrus
+[2025-08-23 19:02:30,569][finetuning.data.locator][INFO] - Found 24750 OCT files under prefix 'ai-readi/dataset/retinal_oct/structural_oct/'
+[2025-08-23 19:02:30,609][finetuning.data.locator][ERROR] - Failed to save cache to oct_key_cache.json: [Errno 2] No such file or directory: ''
+[2025-08-23 19:02:30,609][finetuning.data.locator][INFO] - Built key mapping for 383 participants
+[2025-08-23 19:02:30,610][finetuning.data.dataset][WARNING] - Filtered dataset: 159 -> 65 samples (94 participants without OCT data)
+[2025-08-23 19:02:30,610][finetuning.data.dataset][INFO] - Initialized dataset with 65 samples
+[2025-08-23 19:02:30,610][__main__][INFO] - Creating model from checkpoint: best_checkpoint_multi_domain.pt
+[2025-08-23 19:02:30,610][__main__][INFO] - Freeze encoder: True
+[2025-08-23 19:02:30,610][finetuning.models.model][INFO] - Creating model from checkpoint: /Users/layne/Mac/Acdamic/UCInspire/checkpoints/best_checkpoint_multi_domain.pt
+[2025-08-23 19:02:31,114][finetuning.models.encoder_loader][INFO] - Loaded checkpoint from /Users/layne/Mac/Acdamic/UCInspire/checkpoints/best_checkpoint_multi_domain.pt
+[2025-08-23 19:02:31,115][finetuning.models.encoder_loader][INFO] - Checkpoint epoch: 0
+[2025-08-23 19:02:31,115][finetuning.models.encoder_loader][INFO] - Encoder config: {'img_size': (64, 384, 384), 'patch_size': (4, 16, 16), 'in_chans': 1, 'embed_dim': 768, 'depth': 12, 'num_heads': 12, 'mlp_ratio': 4.0, 'qkv_bias': True, 'drop_rate': 0.0, 'attn_drop_rate': 0.0, 'drop_path_rate': 0.0}
+[2025-08-23 19:02:32,048][finetuning.models.encoder_loader][INFO] - Loaded encoder weights from /Users/layne/Mac/Acdamic/UCInspire/checkpoints/best_checkpoint_multi_domain.pt
+[2025-08-23 19:02:32,048][finetuning.models.encoder_loader][INFO] - Encoder weights frozen for linear probing
+[2025-08-23 19:02:32,050][finetuning.models.encoder_loader][INFO] - Encoder moved to device: cpu
+[2025-08-23 19:02:32,086][finetuning.models.classifier][INFO] - Created linear probe head: 768 -> 4
+[2025-08-23 19:02:32,086][finetuning.models.model][INFO] - Created OCT classification model:
+[2025-08-23 19:02:32,086][finetuning.models.model][INFO] -   Encoder frozen: True
+[2025-08-23 19:02:32,086][finetuning.models.model][INFO] -   Pooling method: mean
+[2025-08-23 19:02:32,086][finetuning.models.model][INFO] -   Input shape: (64, 384, 384)
+[2025-08-23 19:02:32,086][finetuning.models.model][INFO] -   Output classes: 4
+[2025-08-23 19:02:32,087][finetuning.models.model][INFO] - Model parameters:
+[2025-08-23 19:02:32,087][finetuning.models.model][INFO] -   encoder_total: 92,921,088
+[2025-08-23 19:02:32,087][finetuning.models.model][INFO] -   encoder_trainable: 0
+[2025-08-23 19:02:32,087][finetuning.models.model][INFO] -   head_total: 3,076
+[2025-08-23 19:02:32,087][finetuning.models.model][INFO] -   head_trainable: 3,076
+[2025-08-23 19:02:32,087][finetuning.models.model][INFO] -   total: 92,924,164
+[2025-08-23 19:02:32,087][finetuning.models.model][INFO] -   trainable: 3,076
+[2025-08-23 19:02:32,087][__main__][ERROR] - Training failed: create_trainer() got an unexpected keyword argument 'wandb_run'

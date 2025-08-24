@@ -52,12 +52,13 @@ class OCTLocator:
         except Exception as e:
             logger.error(f"Failed to save cache to {self.cache_file}: {e}")
     
-    def _build_key_mapping(self, force_rebuild: bool = False) -> Dict[str, str]:
+    def _build_key_mapping(self, force_rebuild: bool = False, limit_participants: Optional[int] = None) -> Dict[str, str]:
         """
         Build mapping from participant_id to OCT file key.
         
         Args:
             force_rebuild: If True, rebuild cache from scratch
+            limit_participants: If set, limit processing to first N participants per device (for testing)
             
         Returns:
             Dictionary mapping participant_id to file key
@@ -75,23 +76,61 @@ class OCTLocator:
             try:
                 # Try common prefixes for fine-tuning data
                 prefixes_to_try = [
-                    "fine-tuneing-data/",  # As specified in plan (note: typo preserved)
-                    "fine-tuning-data/",   # Common alternative
-                    "participants/",       # Alternative structure
-                    ""                     # Root level
+                    "ai-readi/dataset/retinal_oct/structural_oct/",  # Actual location in B2
+                    "ai-readi/dataset/retinal_oct/",              # Alternative level
+                    "fine-tuneing-data/",                         # As specified in plan (note: typo preserved)  
+                    "fine-tuning-data/",                          # Common alternative
+                    "participants/",                              # Alternative structure
+                    ""                                            # Root level
                 ]
                 
                 all_keys = []
                 for prefix in prefixes_to_try:
                     try:
-                        keys = list_bucket_contents(self.bucket_name, prefix, max_keys=10000)
-                        # Filter for OCT-related files (common formats)
-                        oct_keys = [k for k in keys if any(ext in k.lower() for ext in 
-                                   ['.dcm', '.dicom', '.nii', '.nii.gz', '.npy', '.npz'])]
-                        if oct_keys:
-                            logger.info(f"Found {len(oct_keys)} OCT files under prefix '{prefix}'")
+                        # Special handling for the structural_oct directory
+                        if "structural_oct/" in prefix:
+                            # List device directories first
+                            device_dirs = list_bucket_contents(self.bucket_name, prefix, max_keys=100)
+                            logger.info(f"Found {len(device_dirs)} device directories under '{prefix}'")
+                            
+                            # For each device directory, list participant directories
+                            for device_dir in device_dirs:
+                                device_name = device_dir.split('/')[-1]  # Extract device name
+                                device_prefix = f"{prefix}{device_name}/"
+                                try:
+                                    participant_dirs = list_bucket_contents(self.bucket_name, device_prefix, max_keys=1000)
+                                    if limit_participants:
+                                        participant_dirs = participant_dirs[:limit_participants]
+                                    logger.info(f"Found {len(participant_dirs)} participants under {device_name}")
+                                    
+                                    # For each participant directory, list DICOM files
+                                    for participant_dir in participant_dirs:
+                                        participant_id = participant_dir.split('/')[-1]
+                                        participant_prefix = f"{device_prefix}{participant_id}/"
+                                        try:
+                                            files = list_bucket_contents(self.bucket_name, participant_prefix, max_keys=100)
+                                            oct_files = [f for f in files if any(ext in f.lower() for ext in 
+                                                        ['.dcm', '.dicom', '.nii', '.nii.gz', '.npy', '.npz'])]
+                                            all_keys.extend(oct_files)
+                                        except Exception as e:
+                                            logger.debug(f"Error listing files for participant {participant_id}: {e}")
+                                            continue
+                                except Exception as e:
+                                    logger.debug(f"Error listing participants for {device_name}: {e}")
+                                    continue
+                                    
+                        else:
+                            # Standard flat directory listing for other prefixes
+                            keys = list_bucket_contents(self.bucket_name, prefix, max_keys=10000)
+                            # Filter for OCT-related files (common formats)
+                            oct_keys = [k for k in keys if any(ext in k.lower() for ext in 
+                                       ['.dcm', '.dicom', '.nii', '.nii.gz', '.npy', '.npz'])]
                             all_keys.extend(oct_keys)
+                        
+                        if all_keys:
+                            logger.info(f"Found {len(all_keys)} OCT files under prefix '{prefix}'")
                             break  # Use first prefix that has OCT files
+                            
                     except Exception as e:
                         logger.debug(f"No files found under prefix '{prefix}': {e}")
                         continue
@@ -207,6 +246,12 @@ class OCTLocator:
         logger.info("Refreshing OCT key cache...")
         self._key_cache = None
         self._build_key_mapping(force_rebuild=True)
+    
+    def smoke_test(self, max_participants_per_device: int = 5):
+        """Quick smoke test with limited participants."""
+        logger.info(f"Running smoke test with {max_participants_per_device} participants per device...")
+        self._key_cache = None
+        return self._build_key_mapping(force_rebuild=True, limit_participants=max_participants_per_device)
 
 
 @lru_cache(maxsize=1)
