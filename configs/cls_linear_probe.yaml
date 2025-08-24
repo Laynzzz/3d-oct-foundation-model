@@ -53,7 +53,7 @@ train:
     min_delta: 0.001
 
 log:
-  wandb: false
+  wandb: true
   wandb_project: "3d-oct-foundation-model"
   wandb_entity: "laynzzz-university-at-buffalo"
   ckpt_dir: "./runs/cls_lp_v1"
