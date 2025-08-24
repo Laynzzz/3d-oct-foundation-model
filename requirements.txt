@@ -13,5 +13,13 @@ einops
 omegaconf
 wandb
 
+# Fine-tuning dependencies
+pandas
+numpy
+scikit-learn
+s3fs
+boto3
+hydra-core
+
 # optional
 nibabel

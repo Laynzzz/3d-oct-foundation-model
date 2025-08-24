@@ -3,9 +3,17 @@
 ## Project Overview
 3D Retinal OCT Foundation Model using Video Joint-Embedding Predictive Architecture (V-JEPA2) for self-supervised learning on retinal OCT volumes.
 
-## ✅ **PRODUCTION READY - TRAINING OPERATIONAL**
+## ✅ **PRODUCTION READY - TRAINING COMPLETE**
 
-The complete V-JEPA2 3D OCT foundation model is **fully operational** and successfully running distributed training on 16 TPU cores with W&B monitoring.
+The complete V-JEPA2 3D OCT foundation model is **fully operational** with successful pretraining completed. Three trained checkpoints are available for downstream fine-tuning.
+
+### 🎯 **Current Phase: Fine-Tuning Setup**
+
+**Pretraining Status**: ✅ **COMPLETE**
+- Three V-JEPA2 checkpoints successfully trained and saved locally
+- Ready for downstream classification tasks
+
+**Next Steps**: Setting up fine-tuning pipeline for 4-class diabetes classification
 
 ### 🚨 **CRITICAL REMINDER: Code Update Workflow**
 ```bash
@@ -16,12 +24,18 @@ gcloud compute tpus tpu-vm ssh oct-jepa2-v4-32 --zone=us-central2-b --project=d-
 
 ### Current Implementation Status
 
-**All Core Components Complete:**
+**Pretraining Components Complete:**
 - ✅ **Data Pipeline**: GCS DICOM streaming with robust validation
 - ✅ **V-JEPA2 Model**: 29.4M parameter 3D ViT with EMA target encoder  
 - ✅ **Training Infrastructure**: XLA distributed training on 16 TPU cores
 - ✅ **Monitoring**: W&B integration with metrics and checkpointing
 - ✅ **Error Handling**: Robust DICOM validation and empty batch handling
+- ✅ **Trained Checkpoints**: 3 foundation models ready for fine-tuning
+
+**Fine-Tuning Components (In Development):**
+- 🔄 **Classification Pipeline**: Setting up diabetes status classification
+- 🔄 **B2 Data Integration**: Backblaze B2 storage for fine-tuning dataset
+- 🔄 **Multi-Checkpoint Evaluation**: Compare 3 pretrained models
 
 ## Environment Configuration
 
@@ -32,11 +46,25 @@ gcloud compute tpus tpu-vm ssh oct-jepa2-v4-32 --zone=us-central2-b --project=d-
 - **PyTorch Version**: 2.7.1
 - **XLA Version**: 2.7.0
 
-### GCS Configuration
+### Data Configuration
+
+**Pretraining Data (GCS):**
 - **Bucket**: `gs://layne-tpu-code-sync/OCTdata/OCTdata`
 - **Manifest**: `gs://layne-tpu-code-sync/OCTdata/OCTdata/manifest.tsv`
-- **Checkpoints**: `gs://layne-tpu-code-sync/checkpoints/vjepa2/`
+- **Remote Checkpoints**: `gs://layne-tpu-code-sync/checkpoints/vjepa2/`
 - **Data Structure**: Individual DICOM files at structured paths
+
+**Local Trained Checkpoints:**
+- **Directory**: `/Users/layne/Mac/Acdamic/UCInspire/checkpoints/`
+- **Multi-domain**: `best_checkpoint_multi_domain.pt` (1.5GB)
+- **Single-domain 01**: `best_checkpoint_single_domain_01.pt` (1.5GB)
+- **Single-domain 02**: `best_checkpoint_single_domain_02.pt` (1.5GB)
+
+**Fine-Tuning Data (Backblaze B2):**
+- **Endpoint**: `s3.us-west-004.backblazeb2.com`
+- **Bucket**: `eye-dataset`
+- **Labels**: `/fine-tuneing-data/participants.tsv` (4-class diabetes classification)
+- **Participants**: 1001-1100+ with train/val/test splits
 
 ### Environment Variables
 ```bash
@@ -236,14 +264,25 @@ gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
 - **BF16 modernization**: Added `use_bf16` config option to replace deprecated `XLA_USE_BF16`
 - **Training pipeline**: Now runs warning-free while maintaining functionality
 
-### Training Pipeline Status
+### Current Status
+
+**Pretraining Pipeline:**
 ```
 ✅ XLA distributed training: 16 TPU workers operational
-✅ W&B monitoring: Multiple concurrent runs active  
+✅ W&B monitoring: Multiple concurrent runs completed
 ✅ Data pipeline: 601 DICOM files processed successfully
 ✅ Error handling: Robust validation prevents crashes
 ✅ Mixed precision: Modern BF16 configuration working
 ✅ Warning-free: All configuration issues resolved
+✅ Model checkpoints: 3 trained foundation models saved locally
+```
+
+**Fine-Tuning Pipeline (Next Phase):**
+```
+🔄 Fine-tuning plan: Updated and aligned with V-JEPA2 architecture
+🔄 B2 data integration: Pending bucket structure confirmation
+🔄 Classification head: Linear probe + full fine-tuning modes
+🔄 Multi-checkpoint comparison: Evaluate all 3 pretrained models
 ```
 
 ## Troubleshooting
@@ -261,4 +300,26 @@ gcloud compute tpus tpu-vm ssh ${TPU_NAME} \
 
 ---
 
-*Last updated: After DICOM validation enhancement and warning fixes - Training pipeline fully operational and warning-free*
+## Fine-Tuning Setup
+
+### Available Checkpoints
+Three V-JEPA2 foundation models trained and ready:
+1. **Multi-domain**: Trained on all device types (heidelberg, topcon, zeiss)
+2. **Single-domain 01**: Trained on specific device subset  
+3. **Single-domain 02**: Trained on specific device subset
+
+### Fine-Tuning Task
+- **Objective**: 4-class diabetes status classification
+- **Classes**: healthy, pre_diabetes_lifestyle_controlled, oral_medication_controlled, insulin_dependent
+- **Data**: Backblaze B2 storage with train/val/test splits
+- **Approach**: Compare all 3 checkpoints via linear probe + full fine-tuning
+
+### Next Actions
+1. Confirm B2 bucket structure for fine-tuning data
+2. Implement classification pipeline in `finetuning/` directory
+3. Set up multi-checkpoint evaluation framework
+4. Execute comparative analysis of foundation models
+
+---
+
+*Last updated: After pretraining completion and fine-tuning plan setup - Ready for downstream evaluation phase*
