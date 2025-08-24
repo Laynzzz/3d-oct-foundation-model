@@ -144,7 +144,8 @@ class OCTTrainer:
         val_loader: DataLoader,
         config: Dict[str, Any],
         device: torch.device = None,
-        wandb_run = None
+        wandb_run = None,
+        use_wandb: bool = False
     ):
         """
         Initialize trainer.
@@ -156,6 +157,7 @@ class OCTTrainer:
             config: Training configuration
             device: Training device
             wandb_run: W&B run for logging
+            use_wandb: Whether to use W&B logging
         """
         self.model = model
         self.train_loader = train_loader
@@ -163,6 +165,7 @@ class OCTTrainer:
         self.config = config
         self.device = device or torch.device('cpu')
         self.wandb_run = wandb_run
+        self.use_wandb = use_wandb
         
         # Move model to device
         self.model = self.model.to(self.device)
@@ -544,5 +547,6 @@ def create_trainer(
         val_loader=val_loader,
         config=config,
         device=device,
-        wandb_run=wandb_run
+        wandb_run=wandb_run,
+        use_wandb=use_wandb
     )
