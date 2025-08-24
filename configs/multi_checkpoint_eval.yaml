@@ -1,0 +1,39 @@
+# Multi-checkpoint evaluation configuration for P1 phase
+# Compares all 3 V-JEPA2 foundation model checkpoints
+defaults:
+  - production_optimized
+  - _self_
+
+# Override project name and checkpoint paths
+project_name: oct_cls_multi_checkpoint
+
+# Hydra multirun configuration for all 3 checkpoints
+hydra:
+  mode: MULTIRUN
+  sweep:
+    dir: ./runs/multi_checkpoint_eval
+    subdir: ${checkpoint_name}
+  sweeper:
+    params:
+      paths.checkpoint_path: 
+        - "gs://layne-tpu-code-sync/checkpoints/vjepa2/vjepa2_multi_domain/best_checkpoint.pt"
+        - "gs://layne-tpu-code-sync/checkpoints/vjepa2/vjepa2_single_domain_01/best_checkpoint.pt" 
+        - "gs://layne-tpu-code-sync/checkpoints/vjepa2/vjepa2_single_domain_02/best_checkpoint.pt"
+      checkpoint_name:
+        - "multi_domain"
+        - "single_domain_01"
+        - "single_domain_02"
+
+# Shorter training for comparative evaluation
+train:
+  epochs: 15                   # Slightly fewer epochs for comparison
+  early_stopping:
+    enabled: true
+    patience: 4                # Faster stopping for comparison
+
+log:
+  wandb_project: "3d-oct-foundation-model"
+  wandb_entity: "laynzzz-university-at-buffalo"
+  ckpt_dir: "./runs/multi_checkpoint_eval/${checkpoint_name}"
+  save_best: true
+  save_last: false             # Only save best for comparison
