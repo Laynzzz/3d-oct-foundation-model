@@ -1,7 +1,7 @@
 # Production training config with Scenario A fixes
 # Based on finetune-fix.md analysis: stronger head, class weights, grad accumulation
 defaults:
-  - base_config
+  - production_optimized
   - _self_
 
 project_name: oct_cls_production_fixed

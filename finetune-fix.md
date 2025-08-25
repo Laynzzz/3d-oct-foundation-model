@@ -335,4 +335,188 @@ debug:
   log_every: 1
 Gate it in your dataset/loader and train loop. You’ll get metrics within 1–2 minutes even with remote storage, proving the loop is correct.
 
-*Last Updated: August 24, 2025 - Root cause identified, solutions outlined*
+🔍 W&B Metrics Issue Identified!
+I've found the root cause of why training metrics aren't showing up on W&B. Here's what's happening:
+🚨 Root Cause: Training Loop Issue
+What's Working
+✅ W&B Initialization: Successfully initialized and running
+✅ Training Progress: Epoch 1 completed successfully
+✅ Metrics Computation: Training metrics computed and logged to console
+✅ TPU Training: All 4 workers active and synchronized
+What's Broken
+❌ Validation Loop: No validation results being generated
+❌ W&B Logging: Training metrics not being sent to W&B
+❌ Epoch Progression: Training appears to have stopped after Epoch 1
+�� Technical Analysis
+1. Training Loop Flow Issue
+Looking at the code in finetuning/train/loop.py, W&B logging only happens after validation:
+)
+2. Missing Validation Results
+From the logs, I can see:
+✅ Epoch 1 training completed
+✅ Training metrics computed: {'loss': 1.382, 'accuracy': 39.6%, ...}
+❌ No validation metrics logged
+❌ No "Validation metrics:" log entry
+❌ No Epoch 2 start
+3. Training Appears Stalled
+The last meaningful log entry is:
+)
+🎯 Why W&B Metrics Aren't Showing
+Validation Required: W&B logging only happens after both training AND validation
+Validation Missing: The validation loop isn't running or is failing silently
+Epoch Progression Stopped: Training appears stuck after Epoch 1 completion
+No W&B Calls: Since validation isn't completing, wandb.log() is never called
+
+. Fix it from both ends:
+A. Decouple logging from validation (log train metrics immediately)
+Right after train_epoch(...) returns, log train metrics no matter what. Then run validation. Even if val crashes, you still see train curves.
+# loop.py (end of each epoch)
+train_metrics = run_train_epoch(...)
+if xm.is_master_ordinal():
+    wandb.log({f"train/{k}": v for k, v in train_metrics.items()} |
+              {"epoch": epoch}, step=global_step, commit=True)
+
+try:
+    val_metrics = run_val_epoch(...)
+    if xm.is_master_ordinal():
+        wandb.log({f"val/{k}": v for k, v in val_metrics.items()} |
+                  {"epoch": epoch}, step=global_step, commit=True)
+except Exception as e:
+    # don't kill training if val is flaky
+    if xm.is_master_ordinal():
+        wandb.log({"val/error": 1, "val/exception": str(e), "epoch": epoch},
+                  step=global_step, commit=True)
+    # optional: continue or break depending on your policy
+B. Make validation TPU‑safe (common blockers + fixes)
+1) Use proper sharding/samplers
+If any rank has 0 validation samples, reductions will hang.
+from torch.utils.data import DataLoader, DistributedSampler, SequentialSampler
+from torch_xla.core import xla_model as xm
+from torch_xla.distributed.parallel_loader import MpDeviceLoader
+
+world = xm.xrt_world_size()
+rank  = xm.get_ordinal()
+
+# TRAIN
+train_sampler = DistributedSampler(train_dataset, num_replicas=world,
+                                   rank=rank, shuffle=True, drop_last=False)
+
+train_loader = DataLoader(
+    train_dataset, batch_size=1, sampler=train_sampler,
+    num_workers=2, persistent_workers=True, prefetch_factor=2
+)
+
+# VAL — EITHER shard like train:
+val_sampler = DistributedSampler(val_dataset, num_replicas=world,
+                                 rank=rank, shuffle=False, drop_last=False)
+# OR (simpler) run val on master only (see §C).
+val_loader = DataLoader(val_dataset, batch_size=1, sampler=val_sampler,
+                        num_workers=2, persistent_workers=True, prefetch_factor=2)
+
+device = xm.xla_device()
+train_device_loader = MpDeviceLoader(train_loader, device)
+val_device_loader   = MpDeviceLoader(val_loader, device)
+Call train_sampler.set_epoch(epoch) each epoch:
+train_sampler.set_epoch(epoch)
+2) Guard reductions/metrics when a rank saw 0 batches
+If your val set is small or filtered, some ranks can be empty. Reduce counts and sums, not means, and handle zeros.
+def val_epoch(model, loader):
+    model.eval()
+    loss_sum = torch.tensor(0.0, device=xm.xla_device())
+    correct  = torch.tensor(0.0, device=xm.xla_device())
+    count    = torch.tensor(0.0, device=xm.xla_device())
+
+    with torch.no_grad(), torch.inference_mode():
+        for x, y in loader:
+            out = model(x)
+            loss = criterion(out, y)
+            preds = out.argmax(dim=1)
+            correct += (preds == y).sum()
+            count   += y.numel()
+            loss_sum += loss * y.numel()
+            xm.mark_step()
+
+    # reduce safely (some ranks may have count==0)
+    loss_sum = xm.mesh_reduce('val_loss_sum', loss_sum, torch.sum)
+    correct  = xm.mesh_reduce('val_correct',  correct,  torch.sum)
+    count    = xm.mesh_reduce('val_count',    count,    torch.sum)
+
+    metrics = {
+        "loss": (loss_sum / max(count, torch.tensor(1.0, device=loss_sum.device))).item(),
+        "accuracy": (100.0 * correct / max(count, torch.tensor(1.0, device=correct.device))).item(),
+        "num_samples": count.item(),
+    }
+    return metrics
+3) Avoid per‑step barriers in eval
+Do not call xm.optimizer_step(..., barrier=True) in eval; there’s no optimizer. Also avoid any stray xm.rendezvous inside the loop.
+4) Don’t compute len(val_loader) with DistributedSampler (can be 0)
+If you use it for progress bars/averaging, compute totals via the reductions above.
+5) Print per‑rank sanity before entering val
+This instantly reveals empty ranks:
+local_n = len(val_loader.dataset) if hasattr(val_loader, 'dataset') else -1
+print(f"[rank {rank}/{world}] val loader ready, local dataset approx: {local_n}")
+C. Easiest robust path: run validation on master only
+This sidesteps all multi‑host val issues (good for P1). Everyone else skips val and waits at a barrier.
+def run_val_epoch_master_only(model, full_val_dataset):
+    # Only rank 0 builds/iterates a DataLoader
+    if xm.is_master_ordinal():
+        val_loader = DataLoader(full_val_dataset, batch_size=1,
+                                shuffle=False, num_workers=2,
+                                persistent_workers=True, prefetch_factor=2)
+        val_device_loader = MpDeviceLoader(val_loader, xm.xla_device())
+        metrics = val_epoch(model, val_device_loader)
+    else:
+        metrics = None
+    # Broadcast to all (optional)
+    metrics = xm.broadcast_object(metrics, 0)
+    return metrics
+Then in the loop call:
+val_metrics = run_val_epoch_master_only(model, val_dataset)
+Tradeoff: master does more work for val, but you get no deadlocks and simpler code.
+D. Add a validation watchdog (never hang the epoch)
+If val takes too long or stalls, skip and continue:
+import threading, queue, time
+def run_with_timeout(fn, timeout_s, *args, **kwargs):
+    q = queue.Queue(maxsize=1)
+    def wrapper(): q.put(fn(*args, **kwargs))
+    t = threading.Thread(target=wrapper, daemon=True); t.start()
+    t.join(timeout_s)
+    return q.get() if not q.empty() else None
+
+val_metrics = run_with_timeout(lambda: run_val_epoch(...), timeout_s=900)  # 15 min
+if val_metrics is None and xm.is_master_ordinal():
+    wandb.log({"val/timeout": 1, "epoch": epoch})
+E. Make W&B resilient and visible
+Initialize on master only (or give per‑process group/job_type).
+Log per‑batch training scalars too (you already proved this in debug).
+Always wandb.finish() on master at the end.
+
+
+✅ Confirm collapse
+Print the predicted class histogram on val:
+from collections import Counter
+print(Counter(preds.numpy()))
+If one class dominates (≈ val accuracy %), collapse confirmed.
+🔧 Make the head stronger
+head:
+  hidden: 256     # small MLP
+  dropout: 0.1
+lr_head: 0.003
+(Linear-only heads are fragile when features don’t align perfectly.)
+🔧 Balance training
+Ensure class_weights: auto actually makes it into your loss:
+criterion = nn.CrossEntropyLoss(weight=class_weights_tensor)
+Or use WeightedRandomSampler for balanced mini-batches.
+🔧 Unfreeze encoder a bit
+Let encoder adapt slightly:
+freeze_encoder: true
+unfreeze_at_epoch: 3
+lr_encoder: 1e-5
+lr_head: 0.003
+🔧 Effective batch size
+With batch_size=1, gradients are very noisy. Use grad accumulation:
+batch_size: 1
+grad_accum_steps: 16   # effective batch 16
+👀 Add monitoring
+Per-class accuracy (so you see collapse immediately).
+Prediction entropy (will be very low if collapsing).
