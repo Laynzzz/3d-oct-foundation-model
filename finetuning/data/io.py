@@ -155,20 +155,22 @@ def normalize_volume(volume: torch.Tensor, method: str = "vjepa2") -> torch.Tens
         # Based on typical OCT preprocessing: intensity normalization
         volume = volume.float()
         
-        # Clamp extreme values (handle outliers) - memory-safe quantile
+        # FAST normalization: Skip expensive quantile computation (Performance Fix)
+        # Use cheap approximation based on finetune-fix.md analysis
         try:
-            # For very large tensors, use sampling for quantile estimation
-            if volume.numel() > 1e8:  # > 100M elements
-                flat_volume = volume.flatten()
-                sample_indices = torch.randperm(flat_volume.size(0))[:1000000]
-                sample = flat_volume[sample_indices]
-                q99 = torch.quantile(sample, 0.99)
+            # Downsample for VERY fast quantile approximation (4x4x4 subsampling)
+            if volume.numel() > 1e6:  # Only downsample if large enough
+                vol_small = volume[::4, ::4, ::4].flatten()
+                if vol_small.numel() > 0:
+                    q99 = torch.quantile(vol_small, 0.99)
+                else:
+                    q99 = 0.99 * volume.max()
             else:
                 q99 = torch.quantile(volume, 0.99)
             volume = torch.clamp(volume, 0, q99)
         except RuntimeError as e:
             logger.warning(f"Quantile calculation failed, using max value clipping: {e}")
-            # Fallback: use 99% of max value
+            # Fallback: use 99% of max value (much faster)
             volume = torch.clamp(volume, 0, 0.99 * volume.max())
         
         # Normalize to [0, 1] range
