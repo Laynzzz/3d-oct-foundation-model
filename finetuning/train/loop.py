@@ -372,7 +372,62 @@ class OCTTrainer:
         return train_metrics
     
     def validate(self) -> Dict[str, float]:
-        """Validate model."""
+        """Validate model with TPU-safe master-only approach (Solution C)."""
+        self.model.eval()
+        
+        # Master-only validation to avoid TPU distributed validation issues
+        try:
+            import torch_xla.core.xla_model as xm
+            is_master = xm.is_master_ordinal()
+        except:
+            # Fallback if not on TPU
+            is_master = True
+        
+        if is_master:
+            self.val_metrics.reset()
+            
+            with torch.no_grad():
+                for volumes, labels, participant_ids in self.val_loader:
+                    if len(volumes) == 0:  # Empty batch
+                        continue
+                        
+                    volumes = volumes.to(self.device)
+                    labels = labels.to(self.device)
+                    
+                    # Forward pass
+                    logits = self.model(volumes)
+                    loss = self.criterion(logits, labels)
+                    
+                    # Update metrics
+                    self.val_metrics.update(logits, labels, loss.item())
+            
+            # Compute validation metrics on master
+            metrics = self.val_metrics.compute()
+            logger.info(f"Validation metrics: {metrics}")
+            
+        else:
+            # Non-master workers wait and get dummy metrics
+            metrics = {
+                'loss': 0.0,
+                'accuracy': 0.0,
+                'balanced_accuracy': 0.0,
+                'macro_f1': 0.0,
+                'weighted_f1': 0.0,
+                'auroc_macro': 0.5
+            }
+        
+        # Synchronize across workers if on TPU
+        try:
+            import torch_xla.core.xla_model as xm
+            if hasattr(xm, 'broadcast_object'):
+                metrics = xm.broadcast_object(metrics, src=0)
+        except:
+            pass  # Not on TPU or broadcast not available
+        
+        return metrics
+    
+    def validate_original(self) -> Dict[str, float]:
+        """Original validation method - kept as backup."""
         self.model.eval()
         self.val_metrics.reset()
         
@@ -419,27 +474,58 @@ class OCTTrainer:
             # Train epoch
             train_metrics = self.train_epoch()
             
-            # Validate
-            val_metrics = self.validate()
+            # Log training metrics immediately to W&B (Solution A: Decouple from validation)
+            if self.wandb_run is not None and WANDB_AVAILABLE:
+                train_log_dict = {f'train/{k}': v for k, v in train_metrics.items()}
+                train_log_dict['epoch'] = self.epoch
+                if self.scheduler:
+                    train_log_dict['lr/head'] = self.scheduler.get_last_lr()[0]
+                self.wandb_run.log(train_log_dict, commit=True)
+                logger.info(f"Logged training metrics to W&B for epoch {self.epoch}")
+            
+            # Track training history
+            for key, value in train_metrics.items():
+                self.history[f'train_{key}'].append(value)
+            
+            # Validate with error handling
+            try:
+                val_metrics = self.validate()
+                
+                # Track validation history
+                for key, value in val_metrics.items():
+                    self.history[f'val_{key}'].append(value)
+                
+                # Log validation metrics to W&B
+                if self.wandb_run is not None and WANDB_AVAILABLE:
+                    val_log_dict = {f'val/{k}': v for k, v in val_metrics.items()}
+                    val_log_dict['epoch'] = self.epoch
+                    self.wandb_run.log(val_log_dict, commit=True)
+                    logger.info(f"Logged validation metrics to W&B for epoch {self.epoch}")
+                    
+            except Exception as e:
+                logger.error(f"Validation failed at epoch {self.epoch}: {e}")
+                # Create dummy validation metrics to prevent crashes
+                val_metrics = {
+                    'loss': float('nan'),
+                    'accuracy': 0.0,
+                    'balanced_accuracy': 0.0,
+                    'macro_f1': 0.0,
+                    'weighted_f1': 0.0,
+                    'auroc_macro': 0.5
+                }
+                
+                # Log validation error to W&B
+                if self.wandb_run is not None and WANDB_AVAILABLE:
+                    error_log_dict = {
+                        'val/error': 1,
+                        'val/exception': str(e),
+                        'epoch': self.epoch
+                    }
+                    self.wandb_run.log(error_log_dict, commit=True)
             
             # Update learning rate
             if self.scheduler is not None:
                 self.scheduler.step()
-            
-            # Track history
-            for key, value in train_metrics.items():
-                self.history[f'train_{key}'].append(value)
-            for key, value in val_metrics.items():
-                self.history[f'val_{key}'].append(value)
-            
-            # Log to W&B
-            if self.wandb_run is not None and WANDB_AVAILABLE:
-                log_dict = {f'train_{k}': v for k, v in train_metrics.items()}
-                log_dict.update({f'val_{k}': v for k, v in val_metrics.items()})
-                log_dict['epoch'] = self.epoch
-                if self.scheduler:
-                    log_dict['lr'] = self.scheduler.get_last_lr()[0]
-                self.wandb_run.log(log_dict)
             
             # Check for best model
             val_score = val_metrics.get('balanced_accuracy', 0.0)
