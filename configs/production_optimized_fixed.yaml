@@ -1,0 +1,63 @@
+# Production training config with Scenario A fixes
+# Based on finetune-fix.md analysis: stronger head, class weights, grad accumulation
+defaults:
+  - base_config
+  - _self_
+
+project_name: oct_cls_production_fixed
+
+# Dataset sampling (reduced for faster evaluation)
+data:
+  num_workers: 0
+  cache_dir: /tmp/oct_cache
+  batch_size: 2                    # Double batch size
+  val_batch_size: 2
+  use_distributed: true
+  persistent_workers: false
+  prefetch_factor: 2
+  augment:
+    flip: true
+    intensity_jitter: true
+    resize: [64, 384, 384]
+
+# Model improvements - Scenario A fixes
+model:
+  emb_dim: 768
+  freeze_encoder: true             # Still linear probe
+  unfreeze_at_epoch: 8             # Partial unfreeze later
+  pool_method: mean
+  head:
+    hidden: 256                    # 🔧 Stronger MLP head (was 0)
+    dropout: 0.1
+
+# Training improvements
+train:
+  epochs: 20
+  lr_head: 0.003                   # 🔧 Higher head LR (was 0.001)
+  lr_encoder: 1.0e-05              # For partial unfreeze
+  weight_decay: 0.0001
+  optimizer: AdamW
+  scheduler: cosine
+  warmup_epochs: 2
+  class_weights: auto              # 🔧 Ensure this is applied
+  precision: fp32
+  grad_accum_steps: 8              # 🔧 Effective batch size 16 (2×8)
+  early_stopping:
+    enabled: true
+    patience: 5
+    min_delta: 0.001
+
+# Monitoring improvements
+log:
+  wandb: true
+  wandb_project: "3d-oct-foundation-model"
+  wandb_entity: "laynzzz-university-at-buffalo"
+  ckpt_dir: ./runs/production_optimized_fixed
+  save_best: true
+  save_last: true
+  log_every_n_batches: 10          # More frequent logging
+
+# Debug monitoring (add per-class accuracy)
+debug:
+  log_per_class_acc: true          # 👀 Monitor collapse immediately
+  log_pred_entropy: true           # 👀 Monitor prediction confidence
