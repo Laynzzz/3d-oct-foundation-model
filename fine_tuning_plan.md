@@ -124,7 +124,7 @@ python -m finetuning.train.run -m \
 
 ---
 
-### P2 — Data Pipeline Hardening (High)
+### P3 — Data Pipeline Hardening (Medium - Post TPU)
 
 - Add retry/backoff & file-level exception capture; record failures to `data_errors.csv` with `participant_id`, `key`, `exception`.
 - Optional **local staging cache** (`/tmp/oct_cache`) to reduce repeated S3 reads.
@@ -132,7 +132,7 @@ python -m finetuning.train.run -m \
 
 ---
 
-### P3 — Training Modes & Configs (High)
+### P4 — Training Modes & Configs (High)
 
 - **Configs** (Hydra or plain YAML):
   - `freeze_encoder: true|false`
@@ -149,7 +149,7 @@ python -m finetuning.train.run -m \
 
 ---
 
-### P4 — Metrics, Logging & Reports (High)
+### P5 — Metrics, Logging & Reports (High)
 
 - Metrics: accuracy, **balanced accuracy (primary)**, macro-F1, per-class F1, AUROC.  
 - Confusion matrix per checkpoint.  
@@ -158,7 +158,7 @@ python -m finetuning.train.run -m \
 
 ---
 
-### P5 — Regularization & Robustness (Medium)
+### P6 — Regularization & Robustness (Medium)
 
 - Early stopping on **val balanced-acc** (patience=10).  
 - Weight decay sweep (1e-6…1e-3), dropout (0.1–0.3 for MLP head).  
@@ -167,15 +167,22 @@ python -m finetuning.train.run -m \
 
 ---
 
-### P6 — Performance & Scale (Medium)
+### P2 — TPU Migration (High Priority - After P1)
 
-- Mirror trainer for **TPU (PyTorch/XLA)** once local flow is solid.  
-- Dataloader perf: `persistent_workers`, `prefetch_factor`, pin memory, larger batches if memory allows.  
-- Mixed precision (bf16) on TPU/GPU; ensure numerics stable (no NaNs).
+- **TPU deployment after P1 local validation complete**
+- Mirror trainer for **TPU (PyTorch/XLA)** with proven local flow
+- Upload trained checkpoints and code to TPU VM
+- Scale training with larger batches and distributed processing
+- Mixed precision (bf16) on TPU; ensure numerics stable (no NaNs)
+
+### P7 — Performance & Scale (Medium)
+
+- Dataloader perf: `persistent_workers`, `prefetch_factor`, pin memory, larger batches if memory allows
+- Advanced TPU optimizations and memory management
 
 ---
 
-### P7 — Reproducibility & Packaging (Medium)
+### P8 — Reproducibility & Packaging (Medium)
 
 - CLI entry points:
   - `python -m oct_cls.train.run --config configs/cls_linear_probe.yaml`

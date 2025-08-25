@@ -1,0 +1,46 @@
+# Credentials and secrets
+.env
+*.env
+**/credentials.txt
+**/secrets.txt
+
+# B2 credentials
+**/*credentials*
+**/*secrets*
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# PyTorch models (large files)
+*.pt
+*.pth
+*.ckpt
+checkpoints/
+
+# Logs and outputs
+*.log
+logs/
+outputs/
+runs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Cache directories
+*cache*/
+oct_cache/

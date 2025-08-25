@@ -1,0 +1,17 @@
+defaults:
+  - cls_linear_probe
+
+model:
+  freeze_encoder: false
+  unfreeze_at_epoch: 3
+
+train:
+  epochs: 60
+  lr_head: 5.0e-4
+  lr_encoder: 1.0e-5
+  early_stopping:
+    patience: 15
+    min_delta: 0.001
+
+log:
+  ckpt_dir: "./runs/cls_ft_v1"

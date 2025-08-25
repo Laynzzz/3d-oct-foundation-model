@@ -1,0 +1,64 @@
+project_name: oct_cls_production
+seed: 42
+
+paths:
+  labels_tsv: "ai-readi/dataset/participants.tsv"  # B2 path to participants file
+  checkpoint_path: "gs://layne-tpu-code-sync/checkpoints/vjepa2/vjepa2_multi_domain/best_checkpoint.pt"
+  s3_bucket: "eye-dataset"
+  s3_prefix: "ai-readi/dataset/retinal_oct/"  # B2 prefix for OCT data
+
+s3:
+  endpoint_env: "S3_ENDPOINT_URL"
+
+# Production configuration with optimizations from Quick Wins
+data:
+  num_workers: 0               # Disable multiprocessing due to s3fs fork-safety issue
+  cache_dir: "/tmp/oct_cache"  # Enable local caching for performance
+  batch_size: 4                # Larger batches to amortize loading overhead  
+  val_batch_size: 4
+  use_distributed: true        # Enable DistributedSampler for TPU (4x speedup)
+  persistent_workers: false    # Disabled when num_workers=0
+  prefetch_factor: 2          # Pre-load batches for better throughput
+  augment:
+    flip: true                 # Re-enable augmentation for full training
+    intensity_jitter: true
+    resize: [64, 384, 384]     # D,H,W — match V-JEPA2 pretraining
+
+classes:
+  mapping:
+    healthy: 0
+    pre_diabetes_lifestyle_controlled: 1
+    oral_medication_and_or_non_insulin_injectable_medication_controlled: 2
+    insulin_dependent: 3
+
+model:
+  emb_dim: 768
+  freeze_encoder: true
+  unfreeze_at_epoch: -1
+  pool_method: "mean"
+  head:
+    hidden: 0
+    dropout: 0.1
+
+train:
+  epochs: 20                   # Reasonable epoch count for linear probe
+  lr_head: 1.0e-3
+  lr_encoder: 3.0e-5
+  weight_decay: 1.0e-4
+  optimizer: "AdamW"
+  scheduler: "cosine"
+  warmup_epochs: 2
+  class_weights: "auto"
+  precision: "fp32"
+  early_stopping:
+    enabled: true
+    patience: 5                # More patience for full dataset
+    min_delta: 0.001           # Fine-grained stopping criteria
+
+log:
+  wandb: true
+  wandb_project: "3d-oct-foundation-model"
+  wandb_entity: "laynzzz-university-at-buffalo"
+  ckpt_dir: "./runs/production_optimized"
+  save_best: true
+  save_last: true
