@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import numpy as np
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import logging
 import time
@@ -145,7 +146,8 @@ class OCTTrainer:
         config: Dict[str, Any],
         device: torch.device = None,
         wandb_run = None,
-        use_wandb: bool = False
+        use_wandb: bool = False,
+        ckpt_dir: Optional[Path] = None
     ):
         """
         Initialize trainer.
@@ -166,6 +168,7 @@ class OCTTrainer:
         self.device = device or torch.device('cpu')
         self.wandb_run = wandb_run
         self.use_wandb = use_wandb
+        self.ckpt_dir = ckpt_dir
         
         # Move model to device
         self.model = self.model.to(self.device)
@@ -533,8 +536,10 @@ class OCTTrainer:
                 self.best_val_score = val_score
                 logger.info(f"New best validation score: {val_score:.4f}")
                 
-                # Save best model checkpoint would go here
-                # self.save_checkpoint('best')
+                # Save best model checkpoint during training
+                if hasattr(self, 'ckpt_dir'):
+                    best_path = self.ckpt_dir / 'best_checkpoint_during_training.pt'
+                    self.save_checkpoint(str(best_path))
             
             # Early stopping check
             if self.early_stopping is not None:
@@ -597,7 +602,8 @@ def create_trainer(
     device: Optional[torch.device] = None,
     use_wandb: bool = False,
     wandb_project: str = None,
-    wandb_run_name: str = None
+    wandb_run_name: str = None,
+    ckpt_dir: Optional[Path] = None
 ) -> OCTTrainer:
     """
     Create trainer instance with optional W&B logging.
@@ -634,5 +640,6 @@ def create_trainer(
         config=config,
         device=device,
         wandb_run=wandb_run,
-        use_wandb=use_wandb
+        use_wandb=use_wandb,
+        ckpt_dir=ckpt_dir
     )

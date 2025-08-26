@@ -197,6 +197,10 @@ def train_model(config: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"W&B logging enabled: {wandb_run.name}")
     
     # Create trainer
+    # Create checkpoint directory early for training checkpoints
+    ckpt_dir = Path(log_config.get('ckpt_dir', './runs/default'))
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    
     trainer = create_trainer(
         model=model,
         train_loader=train_loader,
@@ -205,16 +209,15 @@ def train_model(config: Dict[str, Any]) -> Dict[str, Any]:
         device=device,
         use_wandb=config.get('log', {}).get('wandb', False),
         wandb_project=config.get('log', {}).get('wandb_project'),
-        wandb_run_name=wandb_run.name if wandb_run else None
+        wandb_run_name=wandb_run.name if wandb_run else None,
+        ckpt_dir=ckpt_dir
     )
     
     # Train model
     logger.info("Starting training...")
     history = trainer.train()
     
-    # Save results
-    ckpt_dir = Path(log_config.get('ckpt_dir', './runs/default'))
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    # Save results (ckpt_dir already created above)
     
     # Save best model if requested
     if log_config.get('save_best', True):
