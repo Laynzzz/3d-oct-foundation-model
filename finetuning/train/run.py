@@ -29,6 +29,13 @@ try:
 except ImportError:
     WANDB_AVAILABLE = False
 
+try:
+    import torch_xla.core.xla_model as xm
+    import torch_xla.distributed.xla_multiprocessing as xmp
+    XLA_AVAILABLE = True
+except ImportError:
+    XLA_AVAILABLE = False
+
 from finetuning.data.labels import process_labels
 from finetuning.data.dataset import create_dataloader, create_debug_dataloader
 from finetuning.data.transforms import VJepa2Transforms
@@ -58,7 +65,10 @@ def set_seed(seed: int = 42):
 
 def setup_device(config: Dict[str, Any]) -> torch.device:
     """Setup training device."""
-    if torch.cuda.is_available():
+    if XLA_AVAILABLE:
+        device = xm.xla_device()
+        logger.info(f"Using XLA device: {device}")
+    elif torch.cuda.is_available():
         device = torch.device('cuda')
         logger.info(f"Using CUDA device: {torch.cuda.get_device_name()}")
     else:
@@ -267,31 +277,78 @@ def train_model(config: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-@hydra.main(version_base=None, config_path="../../configs", config_name="cls_linear_probe")
-def main(cfg: DictConfig) -> None:
-    """Main entry point with Hydra configuration management."""
-    if not HYDRA_AVAILABLE:
-        raise ImportError("Hydra is required for configuration management. Install with: pip install hydra-core")
+def _mp_fn(index):
+    """Main worker function for XLA multiprocessing."""
+    # This function will be called by each XLA worker
+    # Get config from environment or global variable
+    global _GLOBAL_CONFIG
+    if _GLOBAL_CONFIG is None:
+        logger.error("No global config found for multiprocessing worker")
+        return
     
-    # Convert OmegaConf to dict for easier handling
-    config = OmegaConf.to_container(cfg, resolve=True)
+    config = _GLOBAL_CONFIG
     
-    logger.info("Configuration:")
-    logger.info(OmegaConf.to_yaml(cfg))
+    logger.info(f"Worker {index} starting with XLA device: {xm.xla_device()}")
     
     # Check if checkpoint exists (support GCS paths)
     checkpoint_path = config['paths']['checkpoint_path']
     if not checkpoint_path.startswith('gs://') and not os.path.exists(checkpoint_path):
         logger.error(f"Checkpoint not found: {checkpoint_path}")
-        sys.exit(1)
+        return
     
     try:
         results = train_model(config)
-        logger.info("Training completed successfully!")
+        if xm.is_master_ordinal():
+            logger.info("Training completed successfully!")
         
     except Exception as e:
         logger.error(f"Training failed: {e}")
         raise
+
+
+# Global variable to pass config to multiprocessing workers
+_GLOBAL_CONFIG = None
+
+
+@hydra.main(version_base=None, config_path="../../configs", config_name="cls_linear_probe")
+def main(cfg: DictConfig) -> None:
+    """Main entry point with Hydra configuration management."""
+    global _GLOBAL_CONFIG
+    
+    if not HYDRA_AVAILABLE:
+        raise ImportError("Hydra is required for configuration management. Install with: pip install hydra-core")
+    
+    # Convert OmegaConf to dict for easier handling
+    config = OmegaConf.to_container(cfg, resolve=True)
+    _GLOBAL_CONFIG = config
+    
+    logger.info("Configuration:")
+    logger.info(OmegaConf.to_yaml(cfg))
+    
+    # Check if XLA is available for distributed training
+    if XLA_AVAILABLE:
+        logger.info("Using XLA distributed training")
+        # Fix multiprocessing compatibility issues with Python 3.11 + XLA 2.7.0
+        import multiprocessing
+        multiprocessing.set_start_method('forkserver', force=True)
+        
+        # Use XLA multiprocessing for distributed training
+        xmp.spawn(_mp_fn, nprocs=None)
+    else:
+        logger.info("XLA not available, using single device training")
+        # Check if checkpoint exists (support GCS paths)
+        checkpoint_path = config['paths']['checkpoint_path']
+        if not checkpoint_path.startswith('gs://') and not os.path.exists(checkpoint_path):
+            logger.error(f"Checkpoint not found: {checkpoint_path}")
+            sys.exit(1)
+        
+        try:
+            results = train_model(config)
+            logger.info("Training completed successfully!")
+            
+        except Exception as e:
+            logger.error(f"Training failed: {e}")
+            raise
 
 
 def main_simple(config_path: str, checkpoint_path: Optional[str] = None):
