@@ -279,14 +279,24 @@ def train_model(config: Dict[str, Any]) -> Dict[str, Any]:
 
 def _mp_fn(index):
     """Main worker function for XLA multiprocessing."""
-    # This function will be called by each XLA worker
-    # Get config from environment or global variable
-    global _GLOBAL_CONFIG
-    if _GLOBAL_CONFIG is None:
-        logger.error("No global config found for multiprocessing worker")
-        return
+    import argparse
     
-    config = _GLOBAL_CONFIG
+    # Parse arguments (same as pretraining pattern)
+    parser = argparse.ArgumentParser(description='OCT Fine-tuning with V-JEPA2')
+    parser.add_argument('--config-name', type=str, required=True, help='Config name (without .yaml)')
+    args = parser.parse_args()
+    
+    # Load config using Hydra (but only on worker processes)
+    from hydra import compose, initialize
+    
+    try:
+        # Initialize Hydra (this works in worker processes)
+        with initialize(config_path="../../configs"):
+            cfg = compose(config_name=args.config_name)
+            config = OmegaConf.to_container(cfg, resolve=True)
+    except Exception as e:
+        logger.error(f"Worker {index} failed to load config: {e}")
+        return
     
     logger.info(f"Worker {index} starting with XLA device: {xm.xla_device()}")
     
@@ -306,24 +316,16 @@ def _mp_fn(index):
         raise
 
 
-# Global variable to pass config to multiprocessing workers
-_GLOBAL_CONFIG = None
-
-
-@hydra.main(version_base=None, config_path="../../configs", config_name="cls_linear_probe")
-def main(cfg: DictConfig) -> None:
-    """Main entry point with Hydra configuration management."""
-    global _GLOBAL_CONFIG
+def main_simple():
+    """Simple main entry point for XLA multiprocessing (similar to pretraining)."""
+    import argparse
     
-    if not HYDRA_AVAILABLE:
-        raise ImportError("Hydra is required for configuration management. Install with: pip install hydra-core")
+    # Parse arguments
+    parser = argparse.ArgumentParser(description='OCT Fine-tuning with V-JEPA2')
+    parser.add_argument('--config-name', type=str, required=True, help='Config name (without .yaml)')
+    args = parser.parse_args()
     
-    # Convert OmegaConf to dict for easier handling
-    config = OmegaConf.to_container(cfg, resolve=True)
-    _GLOBAL_CONFIG = config
-    
-    logger.info("Configuration:")
-    logger.info(OmegaConf.to_yaml(cfg))
+    logger.info(f"Starting fine-tuning with config: {args.config_name}")
     
     # Check if XLA is available for distributed training
     if XLA_AVAILABLE:
@@ -336,6 +338,13 @@ def main(cfg: DictConfig) -> None:
         xmp.spawn(_mp_fn, nprocs=None)
     else:
         logger.info("XLA not available, using single device training")
+        # Load config using Hydra for non-XLA fallback
+        from hydra import compose, initialize
+        
+        with initialize(config_path="../../configs"):
+            cfg = compose(config_name=args.config_name)
+            config = OmegaConf.to_container(cfg, resolve=True)
+        
         # Check if checkpoint exists (support GCS paths)
         checkpoint_path = config['paths']['checkpoint_path']
         if not checkpoint_path.startswith('gs://') and not os.path.exists(checkpoint_path):
@@ -351,8 +360,37 @@ def main(cfg: DictConfig) -> None:
             raise
 
 
-def main_simple(config_path: str, checkpoint_path: Optional[str] = None):
-    """Simple entry point without Hydra for programmatic use."""
+@hydra.main(version_base=None, config_path="../../configs", config_name="cls_linear_probe")
+def main(cfg: DictConfig) -> None:
+    """Legacy Hydra entry point - kept for backwards compatibility."""
+    if not HYDRA_AVAILABLE:
+        raise ImportError("Hydra is required for configuration management. Install with: pip install hydra-core")
+    
+    # Convert OmegaConf to dict for easier handling
+    config = OmegaConf.to_container(cfg, resolve=True)
+    
+    logger.info("Configuration:")
+    logger.info(OmegaConf.to_yaml(cfg))
+    
+    logger.info("Using legacy Hydra mode (single device only)")
+    
+    # Check if checkpoint exists (support GCS paths)
+    checkpoint_path = config['paths']['checkpoint_path']
+    if not checkpoint_path.startswith('gs://') and not os.path.exists(checkpoint_path):
+        logger.error(f"Checkpoint not found: {checkpoint_path}")
+        sys.exit(1)
+    
+    try:
+        results = train_model(config)
+        logger.info("Training completed successfully!")
+        
+    except Exception as e:
+        logger.error(f"Training failed: {e}")
+        raise
+
+
+def main_simple_yaml(config_path: str, checkpoint_path: Optional[str] = None):
+    """Simple entry point without Hydra for programmatic use with YAML files."""
     import yaml
     
     # Load config
@@ -382,17 +420,5 @@ def main_simple(config_path: str, checkpoint_path: Optional[str] = None):
 
 
 if __name__ == "__main__":
-    if HYDRA_AVAILABLE:
-        main()
-    else:
-        # Fallback mode without Hydra
-        import argparse
-        
-        parser = argparse.ArgumentParser(description="Train OCT classification model")
-        parser.add_argument("--config", default="configs/cls_linear_probe.yaml", help="Config file path")
-        parser.add_argument("--checkpoint", help="Override checkpoint path")
-        
-        args = parser.parse_args()
-        
-        success = main_simple(args.config, args.checkpoint)
-        sys.exit(0 if success else 1)
+    # Use the simple XLA-compatible entry point by default
+    main_simple()
