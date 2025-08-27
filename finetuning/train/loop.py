@@ -5,6 +5,7 @@ Supports linear probe and full fine-tuning modes with metrics tracking.
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import numpy as np
@@ -135,6 +136,46 @@ class MetricsTracker:
         return confusion_matrix(self.all_labels, self.all_preds, labels=list(range(self.num_classes)))
 
 
+def cross_entropy_with_smoothing_and_weights(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    weight: torch.Tensor = None,
+    smoothing: float = 0.05
+) -> torch.Tensor:
+    """
+    Cross-entropy loss with label smoothing and class weights.
+    TPU/distributed safe implementation.
+    
+    Args:
+        logits: Model output logits [B, C]
+        targets: Target class indices [B]
+        weight: Class weights [C] (optional)
+        smoothing: Label smoothing factor
+        
+    Returns:
+        Loss value
+    """
+    n_classes = logits.size(-1)
+    
+    # Create smoothed target distribution
+    with torch.no_grad():
+        true_dist = torch.full_like(logits, smoothing / (n_classes - 1))
+        true_dist.scatter_(1, targets.unsqueeze(1), 1.0 - smoothing)
+    
+    # Compute log probabilities
+    log_probs = F.log_softmax(logits, dim=1)
+    
+    # Apply loss
+    if weight is not None:
+        # Apply per-sample weighting based on true class
+        sample_weights = weight[targets]  # [B]
+        loss = -(sample_weights * (true_dist * log_probs).sum(dim=1)).mean()
+    else:
+        loss = -(true_dist * log_probs).sum(dim=1).mean()
+    
+    return loss
+
+
 class OCTTrainer:
     """Trainer for OCT classification with linear probe and fine-tuning modes."""
     
@@ -189,10 +230,13 @@ class OCTTrainer:
             self.early_stopping = EarlyStopping(
                 patience=early_stop_config.get('patience', 10),
                 min_delta=early_stop_config.get('min_delta', 0.001),
-                mode='max'  # For balanced accuracy
+                mode=early_stop_config.get('mode', 'max')  # 'max' for accuracy metrics, 'min' for loss
             )
+            self.early_stop_metric = early_stop_config.get('metric', 'balanced_accuracy')
+            logger.info(f"Early stopping enabled: {self.early_stop_metric} (mode: {early_stop_config.get('mode', 'max')})")
         else:
             self.early_stopping = None
+            self.early_stop_metric = None
         
         # Training state
         self.epoch = 0
@@ -262,20 +306,84 @@ class OCTTrainer:
             raise ValueError(f"Unsupported scheduler: {scheduler_type}")
     
     def _setup_loss_function(self):
-        """Setup loss function with optional class weighting."""
+        """Setup loss function with optional class weighting and label smoothing."""
         train_config = self.config.get('train', {})
         class_weights = train_config.get('class_weights', None)
+        label_smoothing = train_config.get('label_smoothing', 0.0)
+        
+        # Store smoothing parameter for use in training
+        self.label_smoothing = label_smoothing
+        self.class_weights_tensor = None  # Will be set if using class weights
         
         if class_weights == 'auto':
-            # This would need to be computed from dataset
-            logger.warning("Auto class weights not implemented, using uniform weights")
-            self.criterion = nn.CrossEntropyLoss()
+            # Compute balanced class weights from training data
+            logger.info("Computing balanced class weights from training dataset")
+            
+            # Collect all training labels efficiently
+            train_labels = []
+            for batch_idx, (_, labels, _) in enumerate(self.train_loader):
+                train_labels.extend(labels.cpu().numpy().tolist())
+                if batch_idx > 100:  # Limit sample for efficiency
+                    break
+            
+            if train_labels:
+                from collections import Counter
+                import numpy as np
+                
+                # Compute class counts
+                label_counts = Counter(train_labels)
+                num_classes = max(label_counts.keys()) + 1
+                
+                # Compute balanced weights: total / (num_classes * count_per_class)
+                total_samples = len(train_labels)
+                weights_list = []
+                for class_id in range(num_classes):
+                    count = label_counts.get(class_id, 1)  # Avoid division by zero
+                    weight = total_samples / (num_classes * count)
+                    weights_list.append(weight)
+                
+                # Create tensor and move to device
+                weights = torch.tensor(weights_list, dtype=torch.float32, device=self.device)
+                self.class_weights_tensor = weights
+                
+                # Use custom loss function if label smoothing is enabled, otherwise use standard CE
+                if label_smoothing > 0:
+                    # Custom loss function will be called in training loop
+                    self.criterion = None  # Signal to use custom function
+                    logger.info(f"✅ Using custom loss with class weights + label smoothing ({label_smoothing})")
+                else:
+                    self.criterion = nn.CrossEntropyLoss(weight=weights)
+                    logger.info("✅ Using CrossEntropyLoss with class weights")
+                
+                # Log class distribution and weights
+                logger.info(f"Class distribution: {dict(label_counts)}")
+                logger.info(f"Computed class weights: {[f'{w:.3f}' for w in weights_list]}")
+                logger.info("✅ Balanced class weighting enabled - should fix Scenario A")
+            else:
+                logger.warning("No training labels found, using uniform weights")
+                if label_smoothing > 0:
+                    self.criterion = None  # Use custom loss with smoothing
+                    logger.info(f"✅ Using label smoothing ({label_smoothing}) with uniform weights")
+                else:
+                    self.criterion = nn.CrossEntropyLoss()
+                
         elif isinstance(class_weights, (list, tuple)):
             weights = torch.tensor(class_weights, dtype=torch.float32, device=self.device)
-            self.criterion = nn.CrossEntropyLoss(weight=weights)
-            logger.info(f"Using class weights: {class_weights}")
+            self.class_weights_tensor = weights
+            
+            if label_smoothing > 0:
+                self.criterion = None  # Use custom loss
+                logger.info(f"✅ Using custom loss with manual weights + label smoothing ({label_smoothing})")
+            else:
+                self.criterion = nn.CrossEntropyLoss(weight=weights)
+                logger.info(f"Using manual class weights: {class_weights}")
         else:
-            self.criterion = nn.CrossEntropyLoss()
+            if label_smoothing > 0:
+                self.criterion = None  # Use custom loss with smoothing only
+                logger.info(f"✅ Using label smoothing ({label_smoothing}) with uniform weights")
+            else:
+                self.criterion = nn.CrossEntropyLoss()
+                logger.info("Using uniform class weights (no balancing)")
     
     def train_epoch(self) -> Dict[str, float]:
         """Train for one epoch."""
@@ -306,7 +414,17 @@ class OCTTrainer:
             forward_start = time.time()
             self.optimizer.zero_grad()
             logits = self.model(volumes)
-            loss = self.criterion(logits, labels)
+            
+            # Compute loss using custom function or standard criterion
+            if self.criterion is None:
+                # Use custom loss with label smoothing and/or class weights
+                loss = cross_entropy_with_smoothing_and_weights(
+                    logits, labels, 
+                    weight=self.class_weights_tensor, 
+                    smoothing=self.label_smoothing
+                )
+            else:
+                loss = self.criterion(logits, labels)
             forward_time = time.time() - forward_start
             
             # Backward pass timing
@@ -399,7 +517,16 @@ class OCTTrainer:
                     
                     # Forward pass
                     logits = self.model(volumes)
-                    loss = self.criterion(logits, labels)
+                    
+                    # Compute loss using custom function or standard criterion
+                    if self.criterion is None:
+                        loss = cross_entropy_with_smoothing_and_weights(
+                            logits, labels,
+                            weight=self.class_weights_tensor,
+                            smoothing=self.label_smoothing
+                        )
+                    else:
+                        loss = self.criterion(logits, labels)
                     
                     # Update metrics
                     self.val_metrics.update(logits, labels, loss.item())
@@ -444,7 +571,16 @@ class OCTTrainer:
                 
                 # Forward pass
                 logits = self.model(volumes)
-                loss = self.criterion(logits, labels)
+                
+                # Compute loss using custom function or standard criterion
+                if self.criterion is None:
+                    loss = cross_entropy_with_smoothing_and_weights(
+                        logits, labels,
+                        weight=self.class_weights_tensor,
+                        smoothing=self.label_smoothing
+                    )
+                else:
+                    loss = self.criterion(logits, labels)
                 
                 # Update metrics
                 self.val_metrics.update(logits, labels, loss.item())
@@ -531,10 +667,11 @@ class OCTTrainer:
                 self.scheduler.step()
             
             # Check for best model
-            val_score = val_metrics.get('balanced_accuracy', 0.0)
+            metric_name = self.early_stop_metric or 'balanced_accuracy'
+            val_score = val_metrics.get(metric_name, 0.0)
             if val_score > self.best_val_score:
                 self.best_val_score = val_score
-                logger.info(f"New best validation score: {val_score:.4f}")
+                logger.info(f"New best validation {metric_name}: {val_score:.4f}")
                 
                 # Save best model checkpoint during training
                 if hasattr(self, 'ckpt_dir'):

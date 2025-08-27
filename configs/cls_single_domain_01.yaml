@@ -1,4 +1,4 @@
-project_name: oct_cls_single_domain_01
+project_name: oct_cls_single_domain_01_fixed
 seed: 42
 
 paths:
@@ -20,8 +20,14 @@ data:
   prefetch_factor: 2          # Pre-load batches
   augment:
     flip: true
-    intensity_jitter: true
+    intensity_jitter: 
+      scale: 0.1              # ±10% intensity jitter (OCT-safe)
+    rotation_deg: 5           # small rotations only
     resize: [64, 384, 384]         # D,H,W — match V-JEPA2 pretraining
+  val_augment:                # ensure val has no randomness
+    flip: false
+    intensity_jitter: false
+    rotation_deg: 0
 
 classes:
   mapping:
@@ -33,31 +39,35 @@ classes:
 model:
   emb_dim: 768
   freeze_encoder: true        # ✅ ENCODER FROZEN
-  unfreeze_at_epoch: -1       # ✅ NEVER UNFREEZE (-1 means never)
+  unfreeze_at_epoch: 3        # Unfreeze encoder after head warmup
   pool_method: "mean"
   head:
-    hidden: 0                 # Linear probe (no hidden layers)
-    dropout: 0.1
+    hidden: 256               # Enable MLP mode (768 -> 256 -> 4)
+    dropout: 0.2              # Stronger regularization
+    activation: "gelu"        # GELU activation as specified
 
 train:
   epochs: 50
-  lr_head: 1.0e-3            # Only head will be trained
-  lr_encoder: 3.0e-5         # Not used since encoder frozen
+  lr_head: 3.0e-3            # Higher head LR for MLP training
+  lr_encoder: 1.0e-5         # Low encoder LR for fine-tuning when unfrozen
   weight_decay: 1.0e-4
   optimizer: "AdamW"
   scheduler: "cosine"
   warmup_epochs: 2
-  class_weights: "auto"
+  grad_accum_steps: 16       # Effective batch size of 16 with batch_size=1
+  class_weights: "auto"      # Fixed class weighting implementation
+  label_smoothing: 0.05      # Add label smoothing to prevent overconfidence
   precision: "fp32"
   early_stopping:
     enabled: true
     patience: 10
-    min_delta: 0.001
+    metric: "balanced_accuracy"  # Use balanced accuracy instead of raw accuracy
+    mode: "max"               # Maximize balanced accuracy
 
 log:
   wandb: true
   wandb_project: "3d-oct-foundation-model"
   wandb_entity: "laynzzz-university-at-buffalo"
-  ckpt_dir: "./runs/cls_single_domain_01"
+  ckpt_dir: "./runs/cls_single_domain_01_fixed"
   save_best: true
   save_last: true
