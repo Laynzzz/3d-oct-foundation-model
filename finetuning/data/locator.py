@@ -174,17 +174,17 @@ class OCTLocator:
         # Remove bucket name if present
         key = key.replace(f"{self.bucket_name}/", "")
         
-        # Common patterns for participant IDs (4-digit numbers like 1001-1100)
+        # Common patterns for participant IDs (4-digit numbers like 1001-7411)
         import re
         
         # Pattern 1: participant_id anywhere in path (4-digit number)
-        match = re.search(r'\b(1[0-9]{3})\b', key)
+        match = re.search(r'\b([1-9][0-9]{3})\b', key)
         if match:
             return match.group(1)
         
         # Pattern 2: Extract from filename
         filename = os.path.basename(key)
-        match = re.search(r'\b(1[0-9]{3})\b', filename)
+        match = re.search(r'\b([1-9][0-9]{3})\b', filename)
         if match:
             return match.group(1)
         
@@ -192,7 +192,7 @@ class OCTLocator:
         parts = key.split('/')
         if len(parts) > 1:
             potential_id = parts[0] if parts[0] != 'fine-tuneing-data' else (parts[1] if len(parts) > 2 else None)
-            if potential_id and re.match(r'^1[0-9]{3}$', potential_id):
+            if potential_id and re.match(r'^[1-9][0-9]{3}$', potential_id):
                 return potential_id
         
         return None
